@@ -4,6 +4,7 @@
 import Foundation
 import Combine
 import IOKit
+import UserNotifications
 
 // MARK: - Data Models
 
@@ -408,6 +409,70 @@ class CPULoadMonitor {
     }
 }
 
+// MARK: - 内存监测
+
+class MemoryMonitor {
+    struct MemoryUsage {
+        let used: UInt64      // 已使用内存 (bytes)
+        let free: UInt64      // 空闲内存 (bytes)
+        let total: UInt64     // 总内存 (bytes)
+        let percentage: Double // 使用百分比
+
+        var usedGB: Double {
+            Double(used) / 1_073_741_824
+        }
+
+        var totalGB: Double {
+            Double(total) / 1_073_741_824
+        }
+
+        var formattedUsed: String {
+            String(format: "%.1f GB", usedGB)
+        }
+
+        var formattedTotal: String {
+            String(format: "%.1f GB", totalGB)
+        }
+    }
+
+    func getMemoryUsage() -> MemoryUsage? {
+        var stats = vm_statistics64()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.stride / MemoryLayout<integer_t>.stride)
+
+        let result = withUnsafeMutablePointer(to: &stats) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+            }
+        }
+
+        guard result == KERN_SUCCESS else { return nil }
+
+        let pageSize = UInt64(vm_kernel_page_size)
+
+        // 获取总内存
+        var totalMemory: UInt64 = 0
+        var size = MemoryLayout<UInt64>.size
+        sysctlbyname("hw.memsize", &totalMemory, &size, nil, 0)
+
+        // 计算已使用内存
+        let active = UInt64(stats.active_count) * pageSize
+        let wired = UInt64(stats.wire_count) * pageSize
+        let compressed = UInt64(stats.compressor_page_count) * pageSize
+
+        let used = active + wired + compressed
+        let free = totalMemory - used
+
+        let percentage = Double(used) / Double(totalMemory) * 100
+
+        return MemoryUsage(
+            used: used,
+            free: free,
+            total: totalMemory,
+            percentage: percentage
+        )
+    }
+}
+
 // MARK: - SMC Helper (通过 Unix Socket 与 daemon 通信)
 
 class SMCHelperClient {
@@ -659,6 +724,9 @@ class FanController: ObservableObject {
     @Published var maxTemperature: Double = 0
     @Published var gpuTemperature: Double?
     @Published var cpuUsage: Double = 0
+    @Published var memoryUsage: Double = 0
+    @Published var memoryUsed: String = ""
+    @Published var memoryTotal: String = ""
     @Published var isMonitoring = false
     @Published var lastError: String?
     @Published var activeProfile: FanProfile?
@@ -679,9 +747,11 @@ class FanController: ObservableObject {
     private let m4TempReader = M4TempReader()
     private let smcHelper = SMCHelperClient.shared
     private let cpuLoadMonitor = CPULoadMonitor()
+    private let memoryMonitor = MemoryMonitor()
     private var monitorTimer: Timer?
     private var autoControlTimer: Timer?
     private let updateInterval: TimeInterval = 2.0
+    private var lastHighTempNotificationTime: Date?
 
     private init() {
         detectPlatform()
@@ -842,6 +912,13 @@ class FanController: ObservableObject {
             cpuUsage = usage.total
         }
 
+        // 更新内存使用率
+        if let memory = memoryMonitor.getMemoryUsage() {
+            memoryUsage = memory.percentage
+            memoryUsed = memory.formattedUsed
+            memoryTotal = memory.formattedTotal
+        }
+
         if isM4 {
             // M4: 使用 HID 传感器
             let readings = m4TempReader.getTemperatures()
@@ -900,6 +977,44 @@ class FanController: ObservableObject {
         }
 
         gpuTemperature = smc.getGPUTemperature()
+
+        // 检查高温通知
+        checkHighTemperatureNotification()
+    }
+
+    private func checkHighTemperatureNotification() {
+        let enableNotification = UserDefaults.standard.bool(forKey: "enableHighTempNotification")
+        guard enableNotification else { return }
+
+        let threshold = UserDefaults.standard.double(forKey: "highTempThreshold")
+        let effectiveThreshold = threshold > 0 ? threshold : 90.0
+
+        if cpuTemperature >= effectiveThreshold {
+            // 检查冷却时间 (5分钟)
+            if let lastTime = lastHighTempNotificationTime,
+               Date().timeIntervalSince(lastTime) < 300 {
+                return
+            }
+
+            // 发送通知
+            sendHighTempNotification()
+            lastHighTempNotificationTime = Date()
+        }
+    }
+
+    private func sendHighTempNotification() {
+        let content = UNMutableNotificationContent()
+        content.title = "温度警告"
+        content.body = String(format: "CPU 温度已达到 %.1f°C，请注意散热！", cpuTemperature)
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: "highTemp-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil
+        )
+
+        UNUserNotificationCenter.current().add(request)
     }
 
     private func fallbackToSMC() {

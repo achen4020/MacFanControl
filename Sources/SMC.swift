@@ -197,7 +197,7 @@ class SMCManager {
 
     /// Call SMC with input/output structures
     private func callSMC(_ input: inout SMCKeyData, _ output: inout SMCKeyData) throws {
-        var inputSize = MemoryLayout<SMCKeyData>.size
+        let inputSize = MemoryLayout<SMCKeyData>.size
         var outputSize = MemoryLayout<SMCKeyData>.size
 
         let result = IOConnectCallStructMethod(
