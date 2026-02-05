@@ -1,0 +1,25 @@
+# Build artifacts
+.build/
+.swiftpm/
+*.o
+DerivedData/
+
+# macOS
+.DS_Store
+*.dSYM
+
+# Compiled binaries (keep source)
+test_smc
+test_smc2
+test_smc3
+test_temp
+smc_helper
+
+# IDE
+*.xcodeproj/
+*.xcworkspace/
+.idea/
+
+# Temporary files
+*.log
+/tmp/
