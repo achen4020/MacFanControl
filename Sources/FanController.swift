@@ -563,16 +563,24 @@ class SMCHelperClient {
         let bundle = Bundle.main
         let appPath = bundle.bundlePath
 
+        // 检查 Contents/Resources 目录 (标准位置)
+        let resourcesPath = (appPath as NSString).appendingPathComponent("Contents/Resources/smc_helper")
+        if FileManager.default.fileExists(atPath: resourcesPath) {
+            return resourcesPath
+        }
+
         // 检查 Contents/MacOS 目录
         let macosPath = (appPath as NSString).appendingPathComponent("Contents/MacOS/smc_helper")
         if FileManager.default.fileExists(atPath: macosPath) {
             return macosPath
         }
 
-        // 检查 Contents/Resources 目录
-        let resourcesPath = (appPath as NSString).appendingPathComponent("Contents/Resources/smc_helper")
-        if FileManager.default.fileExists(atPath: resourcesPath) {
-            return resourcesPath
+        // 检查 bundle.resourcePath
+        if let resourceDir = bundle.resourcePath {
+            let path = (resourceDir as NSString).appendingPathComponent("smc_helper")
+            if FileManager.default.fileExists(atPath: path) {
+                return path
+            }
         }
 
         return nil
