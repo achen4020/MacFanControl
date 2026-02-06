@@ -775,16 +775,59 @@ class FanController: ObservableObject {
         sysctlbyname("hw.model", &model, &size, nil, 0)
         let modelString = String(cString: model)
 
-        // 检测是否为 M4 (Mac16,x)
+        // 检测芯片代数
+        // Mac13,x / Mac14,x = M1/M2
+        // Mac15,x = M3
+        // Mac16,x = M4
+        // 未来可能有 Mac17,x = M5 等
         isM4 = modelString.hasPrefix("Mac16")
 
-        platformInfo = isAppleSilicon ? "Apple Silicon (\(modelString))" : "Intel (\(brand))"
+        // 检测芯片型号用于显示
+        let chipName = detectChipName(model: modelString)
+        platformInfo = isAppleSilicon ? "Apple Silicon \(chipName) (\(modelString))" : "Intel (\(brand))"
 
-        // M4 可以通过 SMC Helper daemon 控制风扇
+        // 所有 Apple Silicon Mac 都可以通过 SMC Helper daemon 控制风扇
         canControlFans = smcHelper.isDaemonRunning
 
-        // 检查是否需要安装 helper
-        needsHelperInstall = isM4 && !smcHelper.isDaemonRunning
+        // 所有 Apple Silicon Mac 都需要安装 helper 来控制风扇
+        needsHelperInstall = isAppleSilicon && !smcHelper.isDaemonRunning
+    }
+
+    private func detectChipName(model: String) -> String {
+        // 根据型号识别芯片
+        // Mac13,x = M1 系列 (2020-2021)
+        // Mac14,x = M1/M2 系列 (2021-2023)
+        // Mac15,x = M3 系列 (2023-2024)
+        // Mac16,x = M4 系列 (2024-)
+
+        if model.hasPrefix("Mac16") {
+            return "M4"
+        } else if model.hasPrefix("Mac15") {
+            return "M3"
+        } else if model.hasPrefix("Mac14") {
+            // Mac14 包含 M1 和 M2 机型，需要进一步判断
+            // Mac14,2 = MacBook Air M2
+            // Mac14,3 = Mac mini M2
+            // Mac14,5/6 = MacBook Pro M2 Pro/Max
+            // Mac14,7 = MacBook Pro M2
+            // Mac14,9/10 = Mac Studio M2 Max/Ultra
+            // Mac14,12 = Mac mini M2 Pro
+            let modelNum = model.replacingOccurrences(of: "Mac14,", with: "")
+            if let num = Int(modelNum) {
+                if num >= 2 {
+                    return "M2"
+                }
+            }
+            return "M1/M2"
+        } else if model.hasPrefix("Mac13") {
+            return "M1"
+        } else if model.hasPrefix("MacBookAir10") || model.hasPrefix("MacBookPro17") ||
+                  model.hasPrefix("MacBookPro18") || model.hasPrefix("Macmini9") ||
+                  model.hasPrefix("iMac21") || model.hasPrefix("MacStudio") {
+            return "M1"
+        }
+
+        return ""
     }
 
     // MARK: - Helper Installation

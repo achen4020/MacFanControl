@@ -70,6 +70,47 @@ class FanCurveWindowController: NSObject {
     }
 }
 
+// MARK: - Settings Window Controller (设置窗口控制器)
+
+@MainActor
+class SettingsWindowController: NSObject {
+    static let shared = SettingsWindowController()
+
+    private var window: NSWindow?
+    private var hostingController: NSHostingController<AnyView>?
+
+    func showWindow() {
+        if let existingWindow = window, existingWindow.isVisible {
+            existingWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let contentView = SettingsView()
+            .environmentObject(FanController.shared)
+
+        hostingController = NSHostingController(rootView: AnyView(contentView))
+
+        window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 450, height: 320),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+
+        window?.title = "设置"
+        window?.contentViewController = hostingController
+        window?.center()
+        window?.isReleasedWhenClosed = false
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func closeWindow() {
+        window?.close()
+    }
+}
+
 // MARK: - Menu Bar Label (状态栏图标)
 
 struct MenuBarLabel: View {
@@ -200,6 +241,14 @@ struct MenuBarContentView: View {
                         Image(systemName: "chart.xyaxis.line")
                         Text("曲线编辑")
                     }
+                }
+                .buttonStyle(.bordered)
+
+                // 设置按钮
+                Button {
+                    SettingsWindowController.shared.showWindow()
+                } label: {
+                    Image(systemName: "gear")
                 }
                 .buttonStyle(.bordered)
 
@@ -438,40 +487,37 @@ struct FanSection: View {
 
                 Spacer()
 
-                if fanController.isM4 {
-                    Text("M4 限制")
+                if fanController.isAppleSilicon && !fanController.canControlFans {
+                    Text("需要安装服务")
                         .font(.caption2)
                         .foregroundColor(.orange)
                 } else if fanController.isAppleSilicon {
-                    Text("系统自动管理")
+                    Text("已启用控制")
                         .font(.caption2)
-                        .foregroundColor(.blue)
+                        .foregroundColor(.green)
                 }
             }
 
             if fanController.fans.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    if fanController.isM4 {
+                    if fanController.isAppleSilicon && !fanController.canControlFans {
                         HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
+                            Image(systemName: "info.circle.fill")
+                                .foregroundColor(.blue)
                                 .font(.caption)
-                            Text("M4 芯片限制")
+                            Text("Apple Silicon Mac")
                                 .font(.caption)
                                 .fontWeight(.medium)
                         }
-                        Text("Apple M4 芯片在固件层面锁定了风扇接口，第三方软件无法读取或控制风扇转速。")
+                        Text("请安装风扇控制服务以启用风扇监控和控制功能。")
                             .font(.caption2)
                             .foregroundColor(.secondary)
-                        Text("风扇由 macOS 根据温度自动智能调节。")
+                        Text("安装后可以查看风扇转速并手动调节。")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     } else if fanController.isAppleSilicon {
-                        Text("风扇由系统自动管理")
+                        Text("正在获取风扇信息...")
                             .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("Apple Silicon Mac 的风扇由 macOS 智能控制")
-                            .font(.caption2)
                             .foregroundColor(.secondary)
                     } else {
                         Text("未检测到风扇")
@@ -1198,40 +1244,51 @@ struct GeneralSettingsView: View {
     @AppStorage("highTempThreshold") var highTempThreshold = 90.0
 
     var body: some View {
-        Form {
-            Section {
-                Toggle("登录时启动", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { newValue in
-                        LaunchAtLoginManager.shared.setLaunchAtLogin(newValue)
-                    }
-                Toggle("在菜单栏显示温度", isOn: $showTemperature)
+        VStack(alignment: .leading, spacing: 16) {
+            // 启动设置
+            GroupBox(label: Text("启动").font(.headline)) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("登录时启动", isOn: $launchAtLogin)
+                        .onChange(of: launchAtLogin) { newValue in
+                            LaunchAtLoginManager.shared.setLaunchAtLogin(newValue)
+                        }
+                    Toggle("在菜单栏显示温度", isOn: $showTemperature)
+                }
+                .padding(.vertical, 8)
             }
 
-            Section {
-                Toggle("高温通知", isOn: $enableHighTempNotification)
-                    .onChange(of: enableHighTempNotification) { newValue in
-                        if newValue {
-                            NotificationManager.shared.requestPermission()
+            // 通知设置
+            GroupBox(label: Text("通知").font(.headline)) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("高温通知", isOn: $enableHighTempNotification)
+                        .onChange(of: enableHighTempNotification) { newValue in
+                            if newValue {
+                                NotificationManager.shared.requestPermission()
+                            }
                         }
-                    }
 
-                if enableHighTempNotification {
-                    HStack {
-                        Text("温度阈值")
-                        Spacer()
-                        Picker("", selection: $highTempThreshold) {
-                            Text("80°C").tag(80.0)
-                            Text("85°C").tag(85.0)
-                            Text("90°C").tag(90.0)
-                            Text("95°C").tag(95.0)
+                    if enableHighTempNotification {
+                        HStack {
+                            Text("温度阈值")
+                            Spacer()
+                            Picker("", selection: $highTempThreshold) {
+                                Text("80°C").tag(80.0)
+                                Text("85°C").tag(85.0)
+                                Text("90°C").tag(90.0)
+                                Text("95°C").tag(95.0)
+                            }
+                            .pickerStyle(.menu)
+                            .frame(width: 100)
                         }
-                        .pickerStyle(.menu)
-                        .frame(width: 100)
                     }
                 }
+                .padding(.vertical, 8)
             }
+
+            Spacer()
         }
         .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             // 同步开机启动状态
             launchAtLogin = LaunchAtLoginManager.shared.isLaunchAtLoginEnabled
