@@ -1,716 +1,11 @@
-// FanController.swift - Fan control logic and temperature monitoring
-// 支持 Intel Mac 和 Apple Silicon (M1/M2/M3/M4)
+// FanController.swift - 风扇控制核心逻辑
 
 import Foundation
 import Combine
 import IOKit
 import UserNotifications
-
-// MARK: - Data Models
-
-/// Fan information
-struct FanInfo: Identifiable, Equatable {
-    let id: Int
-    var currentSpeed: Int      // Current RPM
-    var minSpeed: Int          // Minimum RPM
-    var maxSpeed: Int          // Maximum RPM
-    var targetSpeed: Int?      // User-set target (nil = auto)
-    var isManualMode: Bool     // Manual or automatic
-
-    var speedPercentage: Double {
-        guard maxSpeed > minSpeed else { return 0 }
-        return Double(currentSpeed - minSpeed) / Double(maxSpeed - minSpeed) * 100
-    }
-
-    static func == (lhs: FanInfo, rhs: FanInfo) -> Bool {
-        lhs.id == rhs.id &&
-        lhs.currentSpeed == rhs.currentSpeed &&
-        lhs.minSpeed == rhs.minSpeed &&
-        lhs.maxSpeed == rhs.maxSpeed &&
-        lhs.targetSpeed == rhs.targetSpeed &&
-        lhs.isManualMode == rhs.isManualMode
-    }
-}
-
-/// Temperature sensor information
-struct TemperatureInfo: Identifiable, Equatable {
-    let id: String
-    let name: String
-    var value: Double
-
-    var formattedValue: String {
-        String(format: "%.1f°C", value)
-    }
-
-    /// 友好的中文名称
-    var displayName: String {
-        // M4 传感器名称映射
-        let sensorMappings: [String: String] = [
-            // PMU tdie - CPU 核心温度
-            "PMU tdie1": "CPU 核心 1",
-            "PMU tdie2": "CPU 核心 2",
-            "PMU tdie3": "CPU 核心 3",
-            "PMU tdie4": "CPU 核心 4",
-            "PMU tdie5": "CPU 核心 5",
-            "PMU tdie6": "CPU 核心 6",
-            "PMU tdie7": "CPU 核心 7",
-            "PMU tdie8": "CPU 核心 8",
-            "PMU tdie9": "CPU 核心 9",
-            "PMU tdie10": "CPU 核心 10",
-            "PMU tdie11": "CPU 核心 11",
-            "PMU tdie12": "CPU 核心 12",
-            "PMU tdie13": "CPU 核心 13",
-            "PMU tdie14": "CPU 核心 14",
-            // PMU2 tdie - 效率核心温度
-            "PMU2 tdie1": "效率核心 1",
-            "PMU2 tdie2": "效率核心 2",
-            "PMU2 tdie3": "效率核心 3",
-            "PMU2 tdie4": "效率核心 4",
-            "PMU2 tdie5": "效率核心 5",
-            "PMU2 tdie6": "效率核心 6",
-            "PMU2 tdie7": "效率核心 7",
-            "PMU2 tdie8": "效率核心 8",
-            "PMU2 tdie9": "效率核心 9",
-            "PMU2 tdie10": "效率核心 10",
-            // PMU tdev - 设备温度
-            "PMU tdev1": "芯片区域 1",
-            "PMU tdev2": "芯片区域 2",
-            "PMU tdev3": "芯片区域 3",
-            "PMU tdev4": "芯片区域 4",
-            "PMU tdev5": "芯片区域 5",
-            "PMU tdev6": "芯片区域 6",
-            "PMU tdev7": "芯片区域 7",
-            "PMU tdev8": "芯片区域 8",
-            // PMU2 tdev
-            "PMU2 tdev1": "效率芯片区域 1",
-            "PMU2 tdev2": "效率芯片区域 2",
-            "PMU2 tdev3": "效率芯片区域 3",
-            "PMU2 tdev4": "效率芯片区域 4",
-            "PMU2 tdev5": "效率芯片区域 5",
-            // 校准温度
-            "PMU tcal": "PMU 校准",
-            "PMU2 tcal": "PMU2 校准",
-            // 存储
-            "NAND CH0 temp": "SSD 温度",
-        ]
-
-        if let mapped = sensorMappings[name] {
-            return mapped
-        }
-
-        // 通用模式匹配
-        if name.contains("tdie") {
-            if name.contains("PMU2") {
-                return name.replacingOccurrences(of: "PMU2 tdie", with: "效率核心 ")
-            }
-            return name.replacingOccurrences(of: "PMU tdie", with: "CPU 核心 ")
-        }
-        if name.contains("tdev") {
-            if name.contains("PMU2") {
-                return name.replacingOccurrences(of: "PMU2 tdev", with: "效率区域 ")
-            }
-            return name.replacingOccurrences(of: "PMU tdev", with: "芯片区域 ")
-        }
-        if name.contains("NAND") {
-            return "SSD"
-        }
-
-        return name
-    }
-
-    var warningLevel: WarningLevel {
-        if value >= 95 {
-            return .critical
-        } else if value >= 80 {
-            return .warning
-        } else {
-            return .normal
-        }
-    }
-}
-
-/// Temperature warning levels
-enum WarningLevel {
-    case normal
-    case warning
-    case critical
-}
-
-/// Temperature-based fan curve point
-struct FanCurvePoint: Codable, Equatable {
-    var temperature: Double
-    var fanSpeedPercentage: Double  // 0-100
-}
-
-/// Fan control profile
-struct FanProfile: Codable, Identifiable, Equatable {
-    var id: UUID = UUID()
-    var name: String
-    var curve: [FanCurvePoint]
-    var isActive: Bool = false
-
-    static let silent = FanProfile(
-        name: "静音",
-        curve: [
-            FanCurvePoint(temperature: 40, fanSpeedPercentage: 20),
-            FanCurvePoint(temperature: 60, fanSpeedPercentage: 35),
-            FanCurvePoint(temperature: 75, fanSpeedPercentage: 50),
-            FanCurvePoint(temperature: 85, fanSpeedPercentage: 75),
-            FanCurvePoint(temperature: 95, fanSpeedPercentage: 100),
-        ]
-    )
-
-    static let balanced = FanProfile(
-        name: "平衡",
-        curve: [
-            FanCurvePoint(temperature: 40, fanSpeedPercentage: 30),
-            FanCurvePoint(temperature: 55, fanSpeedPercentage: 45),
-            FanCurvePoint(temperature: 70, fanSpeedPercentage: 65),
-            FanCurvePoint(temperature: 80, fanSpeedPercentage: 85),
-            FanCurvePoint(temperature: 90, fanSpeedPercentage: 100),
-        ]
-    )
-
-    static let performance = FanProfile(
-        name: "性能",
-        curve: [
-            FanCurvePoint(temperature: 35, fanSpeedPercentage: 40),
-            FanCurvePoint(temperature: 50, fanSpeedPercentage: 60),
-            FanCurvePoint(temperature: 65, fanSpeedPercentage: 80),
-            FanCurvePoint(temperature: 75, fanSpeedPercentage: 95),
-            FanCurvePoint(temperature: 85, fanSpeedPercentage: 100),
-        ]
-    )
-
-    func targetSpeedPercentage(for temperature: Double) -> Double {
-        guard !curve.isEmpty else { return 50 }
-
-        let sortedCurve = curve.sorted { $0.temperature < $1.temperature }
-
-        if temperature <= sortedCurve.first!.temperature {
-            return sortedCurve.first!.fanSpeedPercentage
-        }
-
-        if temperature >= sortedCurve.last!.temperature {
-            return sortedCurve.last!.fanSpeedPercentage
-        }
-
-        for i in 0..<(sortedCurve.count - 1) {
-            let lower = sortedCurve[i]
-            let upper = sortedCurve[i + 1]
-
-            if temperature >= lower.temperature && temperature <= upper.temperature {
-                let ratio = (temperature - lower.temperature) / (upper.temperature - lower.temperature)
-                return lower.fanSpeedPercentage + ratio * (upper.fanSpeedPercentage - lower.fanSpeedPercentage)
-            }
-        }
-
-        return 50
-    }
-}
-
-// MARK: - M4 Temperature Reader (使用 IOHIDEventSystemClient)
-
-/// M4 Mac 温度传感器读取器
-class M4TempReader {
-    struct ThermalReading {
-        let name: String
-        let temperature: Double
-    }
-
-    // 私有 API 类型
-    private typealias IOHIDEventSystemClientRef = UnsafeMutableRawPointer
-    private typealias IOHIDServiceClientRef = UnsafeMutableRawPointer
-    private typealias IOHIDEventRef = UnsafeMutableRawPointer
-
-    // 函数指针
-    private var createClient: (@convention(c) (CFAllocator?) -> IOHIDEventSystemClientRef?)?
-    private var setMatching: (@convention(c) (IOHIDEventSystemClientRef, CFDictionary) -> Void)?
-    private var copyServices: (@convention(c) (IOHIDEventSystemClientRef) -> CFArray?)?
-    private var copyProperty: (@convention(c) (IOHIDServiceClientRef, CFString) -> CFTypeRef?)?
-    private var copyEvent: (@convention(c) (IOHIDServiceClientRef, Int64, Int32, Int64) -> IOHIDEventRef?)?
-    private var getFloatValue: (@convention(c) (IOHIDEventRef, UInt32) -> Double)?
-
-    private var client: IOHIDEventSystemClientRef?
-    private var isAvailable = false
-
-    init() {
-        loadSymbols()
-        if isAvailable {
-            setupClient()
-        }
-    }
-
-    private func loadSymbols() {
-        guard let handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW) else {
-            return
-        }
-
-        if let sym = dlsym(handle, "IOHIDEventSystemClientCreate") {
-            createClient = unsafeBitCast(sym, to: (@convention(c) (CFAllocator?) -> IOHIDEventSystemClientRef?).self)
-        }
-        if let sym = dlsym(handle, "IOHIDEventSystemClientSetMatching") {
-            setMatching = unsafeBitCast(sym, to: (@convention(c) (IOHIDEventSystemClientRef, CFDictionary) -> Void).self)
-        }
-        if let sym = dlsym(handle, "IOHIDEventSystemClientCopyServices") {
-            copyServices = unsafeBitCast(sym, to: (@convention(c) (IOHIDEventSystemClientRef) -> CFArray?).self)
-        }
-        if let sym = dlsym(handle, "IOHIDServiceClientCopyProperty") {
-            copyProperty = unsafeBitCast(sym, to: (@convention(c) (IOHIDServiceClientRef, CFString) -> CFTypeRef?).self)
-        }
-        if let sym = dlsym(handle, "IOHIDServiceClientCopyEvent") {
-            copyEvent = unsafeBitCast(sym, to: (@convention(c) (IOHIDServiceClientRef, Int64, Int32, Int64) -> IOHIDEventRef?).self)
-        }
-        if let sym = dlsym(handle, "IOHIDEventGetFloatValue") {
-            getFloatValue = unsafeBitCast(sym, to: (@convention(c) (IOHIDEventRef, UInt32) -> Double).self)
-        }
-
-        isAvailable = createClient != nil && copyServices != nil && copyEvent != nil && getFloatValue != nil
-    }
-
-    private func setupClient() {
-        guard let create = createClient, let matching = setMatching else { return }
-
-        client = create(kCFAllocatorDefault)
-        guard let c = client else { return }
-
-        // 匹配温度传感器
-        let dict: [String: Any] = [
-            "PrimaryUsagePage": 0xFF00,
-            "PrimaryUsage": 5  // Temperature
-        ]
-        matching(c, dict as CFDictionary)
-    }
-
-    func getTemperatures() -> [ThermalReading] {
-        guard isAvailable,
-              let c = client,
-              let services = copyServices?(c),
-              let getProp = copyProperty,
-              let getEvent = copyEvent,
-              let getValue = getFloatValue else {
-            return []
-        }
-
-        var readings: [ThermalReading] = []
-        let kIOHIDEventTypeTemperature: Int64 = 15
-
-        for i in 0..<CFArrayGetCount(services) {
-            let service = unsafeBitCast(CFArrayGetValueAtIndex(services, i), to: IOHIDServiceClientRef.self)
-
-            // 获取传感器名称
-            var name = "Sensor \(i)"
-            if let prop = getProp(service, "Product" as CFString) {
-                if CFGetTypeID(prop) == CFStringGetTypeID() {
-                    name = prop as! String
-                }
-            }
-
-            // 获取温度事件
-            if let event = getEvent(service, kIOHIDEventTypeTemperature, 0, 0) {
-                // 温度字段: (type << 16) | 0 = 0xf0000
-                let kIOHIDEventFieldTemperatureLevel: UInt32 = 0xf0000
-                let temp = getValue(event, kIOHIDEventFieldTemperatureLevel)
-                if temp > 0 && temp < 150 {
-                    readings.append(ThermalReading(name: name, temperature: temp))
-                }
-            }
-        }
-
-        return readings
-    }
-
-    func getCPUTemperature() -> Double? {
-        let readings = getTemperatures()
-
-        // M4 优先查找 tdie 传感器 (芯片内部温度)
-        let cpuKeywords = ["tdie1", "tdie2", "tdie3", "PMU tdie", "PMU2 tdie"]
-        for keyword in cpuKeywords {
-            if let reading = readings.first(where: { $0.name.localizedCaseInsensitiveContains(keyword) }) {
-                return reading.temperature
-            }
-        }
-
-        // 返回所有 tdie 传感器的平均值
-        let tdieReadings = readings.filter { $0.name.contains("tdie") }
-        if !tdieReadings.isEmpty {
-            let avg = tdieReadings.map { $0.temperature }.reduce(0, +) / Double(tdieReadings.count)
-            return avg
-        }
-
-        // 返回最高温度
-        return readings.map { $0.temperature }.max()
-    }
-
-    func getMaxTemperature() -> Double? {
-        return getTemperatures().map { $0.temperature }.max()
-    }
-}
-
-// MARK: - CPU 负载监测
-
-class CPULoadMonitor {
-    struct CPUUsage {
-        let user: Double
-        let system: Double
-        let idle: Double
-        let total: Double
-    }
-
-    private var previousInfo: host_cpu_load_info?
-
-    func getCPUUsage() -> CPUUsage? {
-        var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info>.stride / MemoryLayout<integer_t>.stride)
-        var info = host_cpu_load_info()
-
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &count)
-            }
-        }
-
-        guard result == KERN_SUCCESS else { return nil }
-
-        let user = Double(info.cpu_ticks.0)
-        let system = Double(info.cpu_ticks.1)
-        let idle = Double(info.cpu_ticks.2)
-        let nice = Double(info.cpu_ticks.3)
-
-        defer { previousInfo = info }
-
-        guard let prev = previousInfo else {
-            return CPUUsage(user: 0, system: 0, idle: 100, total: 0)
-        }
-
-        let userDiff = user - Double(prev.cpu_ticks.0)
-        let systemDiff = system - Double(prev.cpu_ticks.1)
-        let idleDiff = idle - Double(prev.cpu_ticks.2)
-        let niceDiff = nice - Double(prev.cpu_ticks.3)
-
-        let total = userDiff + systemDiff + idleDiff + niceDiff
-
-        guard total > 0 else {
-            return CPUUsage(user: 0, system: 0, idle: 100, total: 0)
-        }
-
-        return CPUUsage(
-            user: (userDiff / total) * 100,
-            system: (systemDiff / total) * 100,
-            idle: (idleDiff / total) * 100,
-            total: ((userDiff + systemDiff) / total) * 100
-        )
-    }
-
-    func estimateTemperature() -> Double {
-        guard let usage = getCPUUsage() else { return 45.0 }
-        let baseTemp = 35.0
-        let maxTemp = 85.0
-        return baseTemp + (usage.total / 100.0) * (maxTemp - baseTemp)
-    }
-}
-
-// MARK: - 内存监测
-
-class MemoryMonitor {
-    struct MemoryUsage {
-        let used: UInt64      // 已使用内存 (bytes)
-        let free: UInt64      // 空闲内存 (bytes)
-        let total: UInt64     // 总内存 (bytes)
-        let percentage: Double // 使用百分比
-
-        var usedGB: Double {
-            Double(used) / 1_073_741_824
-        }
-
-        var totalGB: Double {
-            Double(total) / 1_073_741_824
-        }
-
-        var formattedUsed: String {
-            String(format: "%.1f GB", usedGB)
-        }
-
-        var formattedTotal: String {
-            String(format: "%.1f GB", totalGB)
-        }
-    }
-
-    func getMemoryUsage() -> MemoryUsage? {
-        var stats = vm_statistics64()
-        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.stride / MemoryLayout<integer_t>.stride)
-
-        let result = withUnsafeMutablePointer(to: &stats) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
-            }
-        }
-
-        guard result == KERN_SUCCESS else { return nil }
-
-        let pageSize = UInt64(vm_kernel_page_size)
-
-        // 获取总内存
-        var totalMemory: UInt64 = 0
-        var size = MemoryLayout<UInt64>.size
-        sysctlbyname("hw.memsize", &totalMemory, &size, nil, 0)
-
-        // 计算已使用内存
-        let active = UInt64(stats.active_count) * pageSize
-        let wired = UInt64(stats.wire_count) * pageSize
-        let compressed = UInt64(stats.compressor_page_count) * pageSize
-
-        let used = active + wired + compressed
-        let free = totalMemory - used
-
-        let percentage = Double(used) / Double(totalMemory) * 100
-
-        return MemoryUsage(
-            used: used,
-            free: free,
-            total: totalMemory,
-            percentage: percentage
-        )
-    }
-}
-
-// MARK: - SMC Helper (通过 Unix Socket 与 daemon 通信)
-
-class SMCHelperClient {
-    static let shared = SMCHelperClient()
-
-    private let socketPath = "/var/run/com.macfancontrol.smchelper.sock"
-    private let helperPath = "/Library/PrivilegedHelperTools/com.macfancontrol.smchelper"
-
-    private init() {}
-
-    var isHelperInstalled: Bool {
-        FileManager.default.fileExists(atPath: socketPath) ||
-        FileManager.default.fileExists(atPath: helperPath)
-    }
-
-    var isDaemonRunning: Bool {
-        FileManager.default.fileExists(atPath: socketPath)
-    }
-
-    struct FanData: Codable {
-        let index: Int
-        let currentSpeed: Double
-        let minSpeed: Double
-        let maxSpeed: Double
-        let targetSpeed: Double
-        let mode: Int
-    }
-
-    struct FanInfo: Codable {
-        let fanCount: Int
-        let fans: [FanData]
-    }
-
-    struct TempData: Codable {
-        let key: String
-        let name: String
-        let value: Double
-    }
-
-    struct TempInfo: Codable {
-        let temperatures: [TempData]
-    }
-
-    func getFanInfo() -> FanInfo? {
-        guard let output = sendCommand("info") else { return nil }
-        guard let data = output.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(FanInfo.self, from: data)
-    }
-
-    func getTemperatures() -> TempInfo? {
-        guard let output = sendCommand("temp") else { return nil }
-        guard let data = output.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(TempInfo.self, from: data)
-    }
-
-    func setFanSpeed(_ rpm: Int) -> Bool {
-        guard let output = sendCommand("speed \(rpm)") else { return false }
-        return output.contains("success")
-    }
-
-    func resetToAuto() -> Bool {
-        guard let output = sendCommand("auto") else { return false }
-        return output.contains("success")
-    }
-
-    /// 通过 Unix Socket 发送命令
-    private func sendCommand(_ command: String) -> String? {
-        // 首先尝试 socket 通信
-        if isDaemonRunning {
-            if let result = sendViaSocket(command) {
-                return result
-            }
-        }
-        return nil
-    }
-
-    private func sendViaSocket(_ command: String) -> String? {
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return nil }
-        defer { close(fd) }
-
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-
-        // 复制 socket 路径
-        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-            socketPath.withCString { cstr in
-                _ = strcpy(UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self), cstr)
-            }
-        }
-
-        // 连接
-        let connectResult = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-
-        guard connectResult == 0 else { return nil }
-
-        // 发送命令
-        let cmdData = command + "\n"
-        _ = cmdData.withCString { cstr in
-            write(fd, cstr, strlen(cstr))
-        }
-
-        // 读取响应
-        var buffer = [CChar](repeating: 0, count: 4096)
-        let bytesRead = read(fd, &buffer, buffer.count - 1)
-        guard bytesRead > 0 else { return nil }
-
-        return String(cString: buffer)
-    }
-
-    // MARK: - 自动安装 Helper Daemon
-
-    /// 检查并安装 Helper (如果需要)
-    func installHelperIfNeeded(completion: @escaping (Bool, String?) -> Void) {
-        if isDaemonRunning {
-            completion(true, nil)
-            return
-        }
-
-        // 获取 helper 源文件路径
-        let bundle = Bundle.main
-        guard let helperSource = bundle.path(forResource: "smc_helper", ofType: nil) ??
-              findHelperInAppBundle() else {
-            // 尝试从应用目录查找
-            let appDir = bundle.bundlePath
-            let possiblePaths = [
-                (appDir as NSString).deletingLastPathComponent + "/smc_helper",
-                FileManager.default.currentDirectoryPath + "/smc_helper",
-                FileManager.default.currentDirectoryPath + "/.build/debug/smc_helper",
-                "/tmp/smc_helper",
-                "/Users/chen/MacFanControl/smc_helper"
-            ]
-
-            for path in possiblePaths {
-                if FileManager.default.fileExists(atPath: path) {
-                    installHelper(from: path, completion: completion)
-                    return
-                }
-            }
-
-            completion(false, "找不到 smc_helper 文件")
-            return
-        }
-
-        installHelper(from: helperSource, completion: completion)
-    }
-
-    private func findHelperInAppBundle() -> String? {
-        let bundle = Bundle.main
-        let appPath = bundle.bundlePath
-
-        // 检查 Contents/Resources 目录 (标准位置)
-        let resourcesPath = (appPath as NSString).appendingPathComponent("Contents/Resources/smc_helper")
-        if FileManager.default.fileExists(atPath: resourcesPath) {
-            return resourcesPath
-        }
-
-        // 检查 Contents/MacOS 目录
-        let macosPath = (appPath as NSString).appendingPathComponent("Contents/MacOS/smc_helper")
-        if FileManager.default.fileExists(atPath: macosPath) {
-            return macosPath
-        }
-
-        // 检查 bundle.resourcePath
-        if let resourceDir = bundle.resourcePath {
-            let path = (resourceDir as NSString).appendingPathComponent("smc_helper")
-            if FileManager.default.fileExists(atPath: path) {
-                return path
-            }
-        }
-
-        return nil
-    }
-
-    private func installHelper(from sourcePath: String, completion: @escaping (Bool, String?) -> Void) {
-        // 构建 plist 内容
-        let plistContent = """
-            <?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-            <plist version="1.0">
-            <dict>
-                <key>Label</key>
-                <string>com.macfancontrol.smchelper</string>
-                <key>ProgramArguments</key>
-                <array>
-                    <string>/Library/PrivilegedHelperTools/com.macfancontrol.smchelper</string>
-                    <string>daemon</string>
-                </array>
-                <key>RunAtLoad</key>
-                <true/>
-                <key>KeepAlive</key>
-                <true/>
-                <key>StandardErrorPath</key>
-                <string>/var/log/com.macfancontrol.smchelper.log</string>
-            </dict>
-            </plist>
-            """
-
-        // 将 plist 写入临时文件
-        let tempPlistPath = "/tmp/com.macfancontrol.smchelper.plist"
-        do {
-            try plistContent.write(toFile: tempPlistPath, atomically: true, encoding: .utf8)
-        } catch {
-            completion(false, "无法创建临时文件")
-            return
-        }
-
-        let script = "do shell script \"launchctl unload /Library/LaunchDaemons/com.macfancontrol.smchelper.plist 2>/dev/null || true; mkdir -p /Library/PrivilegedHelperTools; cp '\(sourcePath)' /Library/PrivilegedHelperTools/com.macfancontrol.smchelper; chown root:wheel /Library/PrivilegedHelperTools/com.macfancontrol.smchelper; chmod 755 /Library/PrivilegedHelperTools/com.macfancontrol.smchelper; cp '\(tempPlistPath)' /Library/LaunchDaemons/com.macfancontrol.smchelper.plist; chown root:wheel /Library/LaunchDaemons/com.macfancontrol.smchelper.plist; chmod 644 /Library/LaunchDaemons/com.macfancontrol.smchelper.plist; launchctl load /Library/LaunchDaemons/com.macfancontrol.smchelper.plist\" with administrator privileges"
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            var error: NSDictionary?
-            if let appleScript = NSAppleScript(source: script) {
-                appleScript.executeAndReturnError(&error)
-
-                // 等待 daemon 启动
-                Thread.sleep(forTimeInterval: 1.0)
-
-                DispatchQueue.main.async {
-                    if self.isDaemonRunning {
-                        completion(true, nil)
-                    } else if let err = error {
-                        completion(false, err["NSAppleScriptErrorMessage"] as? String ?? "安装失败")
-                    } else {
-                        completion(false, "Daemon 启动失败")
-                    }
-                }
-            } else {
-                DispatchQueue.main.async {
-                    completion(false, "无法创建安装脚本")
-                }
-            }
-        }
-    }
-}
+@preconcurrency import MacFanControlCore
+@preconcurrency import SMCKit
 // MARK: - Fan Controller
 
 @MainActor
@@ -728,7 +23,7 @@ class FanController: ObservableObject {
     @Published var memoryUsed: String = ""
     @Published var memoryTotal: String = ""
     @Published var isMonitoring = false
-    @Published var lastError: String?
+    @Published var lastError: AppError?
     @Published var activeProfile: FanProfile?
     @Published var isAutoControlEnabled = false
     @Published var canControlFans = false
@@ -743,19 +38,41 @@ class FanController: ObservableObject {
     @Published var profiles: [FanProfile] = [.silent, .balanced, .performance]
 
     // Private
-    private let smc = SMCManager.shared
-    private let m4TempReader = M4TempReader()
-    private let smcHelper = SMCHelperClient.shared
-    private let cpuLoadMonitor = CPULoadMonitor()
-    private let memoryMonitor = MemoryMonitor()
+    private let smc: SMCManager
+    private let temperatureProvider: TemperatureProvider
+    private let smcHelper: SMCHelperClient
+    private let fanControl: FanControlProvider
+    private let cpuLoadMonitor: CPULoadMonitor
+    private let memoryMonitor: MemoryMonitor
     private var monitorTimer: Timer?
     private var autoControlTimer: Timer?
+    private var isApplyingAutoControl = false
+    private var isUpdatingFanInfo = false
+    private var isUpdatingTemperatures = false
+    private var lastAutoTargetPercentage: Double = -1
     private let updateInterval: TimeInterval = 2.0
     private var lastHighTempNotificationTime: Date?
 
-    private init() {
+    private init(
+        smc: SMCManager = .shared,
+        temperatureProvider: TemperatureProvider = M4TempReader(),
+        smcHelper: SMCHelperClient = .shared,
+        cpuLoadMonitor: CPULoadMonitor = CPULoadMonitor(),
+        memoryMonitor: MemoryMonitor = MemoryMonitor()
+    ) {
+        self.smc = smc
+        self.temperatureProvider = temperatureProvider
+        self.smcHelper = smcHelper
+        self.fanControl = smcHelper
+        self.cpuLoadMonitor = cpuLoadMonitor
+        self.memoryMonitor = memoryMonitor
         detectPlatform()
         loadSettings()
+    }
+
+    deinit {
+        monitorTimer?.invalidate()
+        autoControlTimer?.invalidate()
     }
 
     private func detectPlatform() {
@@ -787,10 +104,10 @@ class FanController: ObservableObject {
         platformInfo = isAppleSilicon ? "Apple Silicon \(chipName) (\(modelString))" : "Intel (\(brand))"
 
         // 所有 Apple Silicon Mac 都可以通过 SMC Helper daemon 控制风扇
-        canControlFans = smcHelper.isDaemonRunning
+        canControlFans = fanControl.isAvailable
 
         // 所有 Apple Silicon Mac 都需要安装 helper 来控制风扇
-        needsHelperInstall = isAppleSilicon && !smcHelper.isDaemonRunning
+        needsHelperInstall = isAppleSilicon && !fanControl.isAvailable
     }
 
     private func detectChipName(model: String) -> String {
@@ -848,14 +165,14 @@ class FanController: ObservableObject {
                     // 重新获取风扇信息
                     self?.updateFanInfo()
                 } else {
-                    self?.lastError = error ?? "安装失败"
+                    self?.lastError = .helperInstallFailed(error ?? "安装失败")
                 }
             }
         }
     }
 
     func checkAndInstallHelper() {
-        if isM4 && !smcHelper.isDaemonRunning {
+        if isM4 && !fanControl.isAvailable {
             installHelper()
         }
     }
@@ -888,141 +205,236 @@ class FanController: ObservableObject {
     }
 
     private func updateFanInfo() {
-        // 更新 canControlFans 状态
-        canControlFans = smcHelper.isDaemonRunning
+        // 防止并发调用堆积
+        guard !isUpdatingFanInfo else { return }
+        isUpdatingFanInfo = true
 
-        // 尝试使用 SMC Helper daemon (支持 M4)
-        if smcHelper.isDaemonRunning {
-            if let fanInfo = smcHelper.getFanInfo() {
-                var newFans: [FanInfo] = []
-                for fanData in fanInfo.fans {
-                    let existingFan = fans.first { $0.id == fanData.index }
+        // Capture main-actor-isolated properties before entering background queue
+        let currentFans = fans
+        let appleSilicon = isAppleSilicon
+        let fanControl = self.fanControl
+        let smc = self.smc
+
+        // Move socket I/O off main thread
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            var newFans: [FanInfo] = []
+            let controlAvailable = fanControl.isAvailable
+
+            if controlAvailable {
+                let fanData = fanControl.getFanData()
+                if !fanData.isEmpty {
+                    for data in fanData {
+                        let existingFan = currentFans.first { $0.id == data.index }
+                        let fan = FanInfo(
+                            id: data.index,
+                            currentSpeed: data.currentSpeed,
+                            minSpeed: data.minSpeed,
+                            maxSpeed: data.maxSpeed,
+                            targetSpeed: existingFan?.targetSpeed,
+                            isManualMode: data.mode == 1
+                        )
+                        newFans.append(fan)
+                    }
+                    DispatchQueue.main.async {
+                        if self.canControlFans != controlAvailable { self.canControlFans = controlAvailable }
+                        if !self.fansEqual(self.fans, newFans) { self.fans = newFans }
+                        self.isUpdatingFanInfo = false
+                    }
+                    return
+                }
+            }
+
+            // 后备: 使用传统 SMC (Intel Mac)
+            if !appleSilicon {
+                do {
+                    try smc.open()
+                } catch {
+                    DispatchQueue.main.async {
+                        if self.canControlFans != controlAvailable { self.canControlFans = controlAvailable }
+                        if !self.fans.isEmpty { self.fans = [] }
+                        self.isUpdatingFanInfo = false
+                    }
+                    return
+                }
+
+                let count = smc.getFanCount()
+
+                for i in 0..<count {
+                    let current = smc.getFanSpeed(index: i) ?? 0
+                    let min = smc.getFanMinSpeed(index: i) ?? 0
+                    let max = smc.getFanMaxSpeed(index: i) ?? 6000
+
+                    let existingFan = currentFans.first { $0.id == i }
+
                     let fan = FanInfo(
-                        id: fanData.index,
-                        currentSpeed: Int(fanData.currentSpeed),
-                        minSpeed: Int(fanData.minSpeed),
-                        maxSpeed: Int(fanData.maxSpeed),
+                        id: i,
+                        currentSpeed: current,
+                        minSpeed: min,
+                        maxSpeed: max,
                         targetSpeed: existingFan?.targetSpeed,
-                        isManualMode: fanData.mode == 1
+                        isManualMode: existingFan?.isManualMode ?? false
                     )
                     newFans.append(fan)
                 }
-                fans = newFans
-                return
-            }
-        }
-
-        // 后备: 使用传统 SMC (Intel Mac)
-        if !isAppleSilicon {
-            do {
-                try smc.open()
-            } catch {
-                fans = []
-                return
             }
 
-            let count = smc.getFanCount()
-            var newFans: [FanInfo] = []
-
-            for i in 0..<count {
-                let current = smc.getFanSpeed(index: i) ?? 0
-                let min = smc.getFanMinSpeed(index: i) ?? 0
-                let max = smc.getFanMaxSpeed(index: i) ?? 6000
-
-                let existingFan = fans.first { $0.id == i }
-
-                let fan = FanInfo(
-                    id: i,
-                    currentSpeed: current,
-                    minSpeed: min,
-                    maxSpeed: max,
-                    targetSpeed: existingFan?.targetSpeed,
-                    isManualMode: existingFan?.isManualMode ?? false
-                )
-                newFans.append(fan)
+            DispatchQueue.main.async {
+                if self.canControlFans != controlAvailable { self.canControlFans = controlAvailable }
+                if !self.fansEqual(self.fans, newFans) { self.fans = newFans }
+                self.isUpdatingFanInfo = false
             }
-
-            fans = newFans
-        } else {
-            // Apple Silicon 没有 Helper 时显示空
-            fans = []
         }
     }
 
+    /// Compare two fan arrays without triggering @Published
+    private nonisolated func fansEqual(_ a: [FanInfo], _ b: [FanInfo]) -> Bool {
+        guard a.count == b.count else { return false }
+        for i in 0..<a.count {
+            if a[i].id != b[i].id || a[i].currentSpeed != b[i].currentSpeed ||
+               a[i].isManualMode != b[i].isManualMode {
+                return false
+            }
+        }
+        return true
+    }
+
     private func updateTemperatures() {
-        // 更新 CPU 使用率
+        // 防止并发调用堆积
+        guard !isUpdatingTemperatures else { return }
+        isUpdatingTemperatures = true
+
+        // 更新 CPU 使用率 (仅在变化时赋值，避免触发不必要的 SwiftUI 重绘)
         if let usage = cpuLoadMonitor.getCPUUsage() {
-            cpuUsage = usage.total
+            let newUsage = (usage.total * 10).rounded() / 10  // 保留1位小数
+            if abs(newUsage - cpuUsage) >= 0.1 {
+                cpuUsage = newUsage
+            }
         }
 
         // 更新内存使用率
         if let memory = memoryMonitor.getMemoryUsage() {
-            memoryUsage = memory.percentage
-            memoryUsed = memory.formattedUsed
-            memoryTotal = memory.formattedTotal
+            let newPct = (memory.percentage * 10).rounded() / 10
+            if abs(newPct - memoryUsage) >= 0.1 { memoryUsage = newPct }
+            if memoryUsed != memory.formattedUsed { memoryUsed = memory.formattedUsed }
+            if memoryTotal != memory.formattedTotal { memoryTotal = memory.formattedTotal }
         }
 
-        if isM4 {
-            // M4: 使用 HID 传感器
-            let readings = m4TempReader.getTemperatures()
+        // 温度读取移到后台线程 (HID API 调用较重)
+        let tempProvider = self.temperatureProvider
+        let currentIsM4 = isM4
+        let currentIsAppleSilicon = isAppleSilicon
 
-            if !readings.isEmpty {
-                temperatureSource = "HID 传感器"
-                sensorCount = readings.count
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
 
-                // 转换为 TemperatureInfo
-                temperatures = readings.map { reading in
-                    TemperatureInfo(id: reading.name, name: reading.name, value: reading.temperature)
+            if currentIsM4 || currentIsAppleSilicon {
+                let readings = tempProvider.getTemperatures()
+
+                let newCpuTemp: Double?
+                let newMaxTemp: Double?
+                let newTemps: [TemperatureInfo]?
+                let source: String
+                let count: Int
+
+                if !readings.isEmpty {
+                    source = "HID 传感器"
+                    count = readings.count
+                    newTemps = readings.map { reading in
+                        TemperatureInfo(id: reading.name, name: reading.name, value: reading.temperature)
+                    }
+                    newCpuTemp = Self.extractCPUTemperature(from: readings)
+                    newMaxTemp = readings.map({ $0.temperature }).max()
+                } else if currentIsM4 {
+                    source = "CPU 负载估算"
+                    count = 0
+                    newCpuTemp = nil
+                    newMaxTemp = nil
+                    newTemps = nil
+                } else {
+                    // M1/M2/M3 fallback to SMC — handled on main thread
+                    DispatchQueue.main.async {
+                        self.fallbackToSMC()
+                        self.isUpdatingTemperatures = false
+                    }
+                    return
                 }
 
-                // 获取 CPU 温度 (tdie 传感器平均值)
-                if let cpuTemp = m4TempReader.getCPUTemperature() {
-                    cpuTemperature = cpuTemp
-                }
+                DispatchQueue.main.async {
+                    if self.temperatureSource != source { self.temperatureSource = source }
+                    if self.sensorCount != count { self.sensorCount = count }
 
-                // 获取最高温度
-                if let maxTemp = m4TempReader.getMaxTemperature() {
-                    maxTemperature = maxTemp
+                    if let temps = newTemps {
+                        // 只在温度值实际变化时更新数组
+                        if !self.tempsEqual(self.temperatures, temps) {
+                            self.temperatures = temps
+                        }
+                    } else if currentIsM4 {
+                        // CPU 负载估算 fallback
+                        let estimated = self.cpuLoadMonitor.estimateTemperature()
+                        if abs(estimated - self.cpuTemperature) >= 0.5 {
+                            self.cpuTemperature = estimated
+                            self.maxTemperature = estimated
+                            self.temperatures = [
+                                TemperatureInfo(id: "estimated", name: "CPU (估算)", value: estimated)
+                            ]
+                        }
+                    }
+
+                    if let cpu = newCpuTemp, abs(cpu - self.cpuTemperature) >= 0.5 {
+                        self.cpuTemperature = cpu
+                    }
+                    if let maxT = newMaxTemp, abs(maxT - self.maxTemperature) >= 0.5 {
+                        self.maxTemperature = maxT
+                    }
+
+                    // GPU 温度仅在 Intel Mac 上通过 SMC 可用
+                    if !currentIsAppleSilicon {
+                        self.gpuTemperature = self.smc.getGPUTemperature()
+                    }
+
+                    self.checkHighTemperatureNotification()
+                    self.isUpdatingTemperatures = false
                 }
             } else {
-                // 后备: CPU 负载估算
-                temperatureSource = "CPU 负载估算"
-                sensorCount = 0
-                cpuTemperature = cpuLoadMonitor.estimateTemperature()
-                maxTemperature = cpuTemperature
-                temperatures = [
-                    TemperatureInfo(id: "estimated", name: "CPU (估算)", value: cpuTemperature)
-                ]
+                // Intel: 使用 SMC (on main thread)
+                DispatchQueue.main.async {
+                    if self.temperatureSource != "SMC" { self.temperatureSource = "SMC" }
+                    self.fallbackToSMC()
+                    if !currentIsAppleSilicon {
+                        self.gpuTemperature = self.smc.getGPUTemperature()
+                    }
+                    self.checkHighTemperatureNotification()
+                    self.isUpdatingTemperatures = false
+                }
             }
-        } else if isAppleSilicon {
-            // M1/M2/M3: 尝试 HID，然后 SMC
-            let readings = m4TempReader.getTemperatures()
-
-            if !readings.isEmpty {
-                temperatureSource = "HID 传感器"
-                sensorCount = readings.count
-                temperatures = readings.map { reading in
-                    TemperatureInfo(id: reading.name, name: reading.name, value: reading.temperature)
-                }
-                if let cpuTemp = m4TempReader.getCPUTemperature() {
-                    cpuTemperature = cpuTemp
-                }
-                if let maxTemp = m4TempReader.getMaxTemperature() {
-                    maxTemperature = maxTemp
-                }
-            } else {
-                fallbackToSMC()
-            }
-        } else {
-            // Intel: 使用 SMC
-            temperatureSource = "SMC"
-            fallbackToSMC()
         }
+    }
 
-        gpuTemperature = smc.getGPUTemperature()
+    /// Compare two temperature arrays without triggering @Published
+    private func tempsEqual(_ a: [TemperatureInfo], _ b: [TemperatureInfo]) -> Bool {
+        guard a.count == b.count else { return false }
+        for i in 0..<a.count {
+            if a[i].id != b[i].id || abs(a[i].value - b[i].value) >= 0.5 {
+                return false
+            }
+        }
+        return true
+    }
 
-        // 检查高温通知
-        checkHighTemperatureNotification()
+    /// Extract CPU temperature from readings without calling getTemperatures() again
+    private nonisolated static func extractCPUTemperature(from readings: [TemperatureReading]) -> Double? {
+        let cpuKeywords = ["tdie1", "tdie2", "tdie3", "PMU tdie", "PMU2 tdie"]
+        for keyword in cpuKeywords {
+            if let reading = readings.first(where: { $0.name.localizedCaseInsensitiveContains(keyword) }) {
+                return reading.temperature
+            }
+        }
+        let tdieReadings = readings.filter { $0.name.contains("tdie") }
+        if !tdieReadings.isEmpty {
+            return tdieReadings.map { $0.temperature }.reduce(0, +) / Double(tdieReadings.count)
+        }
+        return readings.map { $0.temperature }.max()
     }
 
     private func checkHighTemperatureNotification() {
@@ -1064,7 +476,7 @@ class FanController: ObservableObject {
         do {
             try smc.open()
         } catch {
-            lastError = "无法访问传感器"
+            lastError = .sensorAccessFailed
             return
         }
 
@@ -1086,7 +498,7 @@ class FanController: ObservableObject {
 
     func setFanSpeed(fanIndex: Int, speed: Int) {
         guard canControlFans else {
-            lastError = "请先安装 SMC Helper"
+            lastError = .helperNotInstalled
             return
         }
 
@@ -1095,14 +507,14 @@ class FanController: ObservableObject {
         let fan = fans[fanIndex]
         let clampedSpeed = max(fan.minSpeed, min(fan.maxSpeed, speed))
 
-        // 使用 SMC Helper
-        if smcHelper.isHelperInstalled {
-            if smcHelper.setFanSpeed(clampedSpeed) {
+        // 使用 FanControlProvider
+        if fanControl.isAvailable {
+            if fanControl.setFanSpeed(clampedSpeed) {
                 fans[fanIndex].targetSpeed = clampedSpeed
                 fans[fanIndex].isManualMode = true
                 lastError = nil
             } else {
-                lastError = "无法设置风扇速度"
+                lastError = .fanControlFailed("Helper 通信失败")
             }
             return
         }
@@ -1114,7 +526,7 @@ class FanController: ObservableObject {
             fans[fanIndex].isManualMode = true
             lastError = nil
         } catch {
-            lastError = "无法设置风扇速度: \(error.localizedDescription)"
+            lastError = .fanControlFailed(error.localizedDescription)
         }
     }
 
@@ -1131,14 +543,14 @@ class FanController: ObservableObject {
     func resetFanToAuto(fanIndex: Int) {
         guard fanIndex < fans.count else { return }
 
-        // 使用 SMC Helper
-        if smcHelper.isHelperInstalled {
-            if smcHelper.resetToAuto() {
+        // 使用 FanControlProvider
+        if fanControl.isAvailable {
+            if fanControl.resetToAuto() {
                 fans[fanIndex].targetSpeed = nil
                 fans[fanIndex].isManualMode = false
                 lastError = nil
             } else {
-                lastError = "无法重置风扇"
+                lastError = .fanResetFailed
             }
             return
         }
@@ -1150,7 +562,7 @@ class FanController: ObservableObject {
             fans[fanIndex].isManualMode = false
             lastError = nil
         } catch {
-            lastError = "无法重置风扇"
+            lastError = .fanResetFailed
         }
     }
 
@@ -1166,7 +578,7 @@ class FanController: ObservableObject {
 
     func enableAutoControl(profile: FanProfile) {
         guard canControlFans else {
-            lastError = "此 Mac 无法手动控制风扇"
+            lastError = .fanControlUnavailable
             return
         }
 
@@ -1178,9 +590,10 @@ class FanController: ObservableObject {
         }
 
         autoControlTimer?.invalidate()
-        autoControlTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        autoControlTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.applyAutoControl()
+                guard let self = self, !self.isApplyingAutoControl else { return }
+                self.applyAutoControl()
             }
         }
 
@@ -1191,7 +604,14 @@ class FanController: ObservableObject {
     private func applyAutoControl() {
         guard isAutoControlEnabled, let profile = activeProfile else { return }
 
+        isApplyingAutoControl = true
+        defer { isApplyingAutoControl = false }
+
         let targetPercentage = profile.targetSpeedPercentage(for: cpuTemperature)
+
+        // 只在目标转速变化超过 1% 时才发送命令，避免频繁 socket 通信
+        guard abs(targetPercentage - lastAutoTargetPercentage) >= 1.0 else { return }
+        lastAutoTargetPercentage = targetPercentage
 
         for i in 0..<fans.count {
             setFanSpeedPercentage(fanIndex: i, percentage: targetPercentage)
@@ -1201,6 +621,7 @@ class FanController: ObservableObject {
     func disableAutoControl() {
         isAutoControlEnabled = false
         activeProfile = nil
+        lastAutoTargetPercentage = -1
         autoControlTimer?.invalidate()
         autoControlTimer = nil
 
@@ -1215,15 +636,21 @@ class FanController: ObservableObject {
     // MARK: - Settings
 
     private func loadSettings() {
-        if let data = UserDefaults.standard.data(forKey: "fanProfiles"),
-           let savedProfiles = try? JSONDecoder().decode([FanProfile].self, from: data) {
-            profiles = savedProfiles
+        if let data = UserDefaults.standard.data(forKey: "fanProfiles") {
+            do {
+                profiles = try JSONDecoder().decode([FanProfile].self, from: data)
+            } catch {
+                lastError = .settingsLoadFailed(error.localizedDescription)
+            }
         }
     }
 
     private func saveSettings() {
-        if let data = try? JSONEncoder().encode(profiles) {
+        do {
+            let data = try JSONEncoder().encode(profiles)
             UserDefaults.standard.set(data, forKey: "fanProfiles")
+        } catch {
+            lastError = .settingsSaveFailed(error.localizedDescription)
         }
     }
 }

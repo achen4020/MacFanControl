@@ -7,60 +7,65 @@ import IOKit
 // MARK: - SMC Data Types
 
 /// SMC key data version information
-struct SMCKeyDataVersion {
-    var major: UInt8 = 0
-    var minor: UInt8 = 0
-    var build: UInt8 = 0
-    var reserved: UInt8 = 0
-    var release: UInt16 = 0
+public struct SMCKeyDataVersion {
+    public var major: UInt8 = 0
+    public var minor: UInt8 = 0
+    public var build: UInt8 = 0
+    public var reserved: UInt8 = 0
+    public var release: UInt16 = 0
+    public init() {}
 }
 
 /// SMC key limits
-struct SMCKeyDataLimits {
-    var version: UInt16 = 0
-    var length: UInt16 = 0
-    var cpuPLimit: UInt32 = 0
-    var gpuPLimit: UInt32 = 0
-    var memPLimit: UInt32 = 0
+public struct SMCKeyDataLimits {
+    public var version: UInt16 = 0
+    public var length: UInt16 = 0
+    public var cpuPLimit: UInt32 = 0
+    public var gpuPLimit: UInt32 = 0
+    public var memPLimit: UInt32 = 0
+    public init() {}
 }
 
 /// SMC key information
-struct SMCKeyDataKeyInfo {
-    var dataSize: UInt32 = 0
-    var dataType: UInt32 = 0
-    var dataAttributes: UInt8 = 0
+public struct SMCKeyDataKeyInfo {
+    public var dataSize: UInt32 = 0
+    public var dataType: UInt32 = 0
+    public var dataAttributes: UInt8 = 0
+    public init() {}
 }
 
 /// SMC key data structure used for IOKit communication
-struct SMCKeyData {
-    var key: UInt32 = 0
-    var vers: SMCKeyDataVersion = SMCKeyDataVersion()
-    var pLimitData: SMCKeyDataLimits = SMCKeyDataLimits()
-    var keyInfo: SMCKeyDataKeyInfo = SMCKeyDataKeyInfo()
-    var result: UInt8 = 0
-    var status: UInt8 = 0
-    var data8: UInt8 = 0
-    var data32: UInt32 = 0
-    var bytes: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
+public struct SMCKeyData {
+    public var key: UInt32 = 0
+    public var vers: SMCKeyDataVersion = SMCKeyDataVersion()
+    public var pLimitData: SMCKeyDataLimits = SMCKeyDataLimits()
+    public var keyInfo: SMCKeyDataKeyInfo = SMCKeyDataKeyInfo()
+    public var result: UInt8 = 0
+    public var status: UInt8 = 0
+    public var data8: UInt8 = 0
+    public var data32: UInt32 = 0
+    public var bytes: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+    public init() {}
 }
 
 /// SMC value structure
-struct SMCValue {
-    var dataSize: UInt32 = 0
-    var dataType: UInt32 = 0
-    var bytes: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
+public struct SMCValue {
+    public var dataSize: UInt32 = 0
+    public var dataType: UInt32 = 0
+    public var bytes: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+    public init() {}
 }
 
 // MARK: - SMC Constants
 
 /// SMC selector commands
-enum SMCSelector: UInt8 {
+public enum SMCSelector: UInt8 {
     case kSMCHandleYPCEvent = 2
     case kSMCReadKey = 5
     case kSMCWriteKey = 6
@@ -69,41 +74,41 @@ enum SMCSelector: UInt8 {
 }
 
 /// Common SMC keys
-struct SMCKeys {
+public struct SMCKeys {
     // Temperature keys
-    static let cpuProximity = "TC0P"      // CPU proximity temperature
-    static let cpuDie = "TC0D"            // CPU die temperature
-    static let cpuCore0 = "TC0C"          // CPU core 0
-    static let cpuCore1 = "TC1C"          // CPU core 1
-    static let gpuProximity = "TG0P"      // GPU proximity
-    static let gpuDie = "TG0D"            // GPU die
-    static let memoryProximity = "Tm0P"   // Memory proximity
-    static let batteryTemp = "TB0T"       // Battery temperature
-    static let palmRest = "Ts0P"          // Palm rest
-    static let ssdTemp = "TH0P"           // SSD temperature
+    public static let cpuProximity = "TC0P"      // CPU proximity temperature
+    public static let cpuDie = "TC0D"            // CPU die temperature
+    public static let cpuCore0 = "TC0C"          // CPU core 0
+    public static let cpuCore1 = "TC1C"          // CPU core 1
+    public static let gpuProximity = "TG0P"      // GPU proximity
+    public static let gpuDie = "TG0D"            // GPU die
+    public static let memoryProximity = "Tm0P"   // Memory proximity
+    public static let batteryTemp = "TB0T"       // Battery temperature
+    public static let palmRest = "Ts0P"          // Palm rest
+    public static let ssdTemp = "TH0P"           // SSD temperature
 
     // Fan keys
-    static let fanCount = "FNum"          // Number of fans
-    static func fanActualSpeed(_ index: Int) -> String { "F\(index)Ac" }  // Actual speed
-    static func fanMinSpeed(_ index: Int) -> String { "F\(index)Mn" }     // Minimum speed
-    static func fanMaxSpeed(_ index: Int) -> String { "F\(index)Mx" }     // Maximum speed
-    static func fanTargetSpeed(_ index: Int) -> String { "F\(index)Tg" }  // Target speed
-    static func fanMode(_ index: Int) -> String { "F\(index)Md" }         // Fan mode (auto/manual)
-    static let fanForce = "FS! "          // Force bits
+    public static let fanCount = "FNum"          // Number of fans
+    public static func fanActualSpeed(_ index: Int) -> String { "F\(index)Ac" }  // Actual speed
+    public static func fanMinSpeed(_ index: Int) -> String { "F\(index)Mn" }     // Minimum speed
+    public static func fanMaxSpeed(_ index: Int) -> String { "F\(index)Mx" }     // Maximum speed
+    public static func fanTargetSpeed(_ index: Int) -> String { "F\(index)Tg" }  // Target speed
+    public static func fanMode(_ index: Int) -> String { "F\(index)Md" }         // Fan mode (auto/manual)
+    public static let fanForce = "FS! "          // Force bits
 
     // Apple Silicon specific
-    static let cpuECluster = "Tp01"       // Efficiency cluster temp
-    static let cpuPCluster = "Tp05"       // Performance cluster temp
+    public static let cpuECluster = "Tp01"       // Efficiency cluster temp
+    public static let cpuPCluster = "Tp05"       // Performance cluster temp
 
     // Apple Silicon fan unlock key (关键!)
-    static let fanTestMode = "Ftst"       // Force/Test mode - 必须设置为 1 才能控制风扇
+    public static let fanTestMode = "Ftst"       // Force/Test mode - 必须设置为 1 才能控制风扇
 }
 
 // MARK: - SMC Manager
 
 /// Main SMC access class
-class SMCManager {
-    static let shared = SMCManager()
+public class SMCManager {
+    public static let shared = SMCManager()
 
     private var connection: io_connect_t = 0
     private let lock = NSLock()
@@ -113,7 +118,7 @@ class SMCManager {
     // MARK: - Connection Management
 
     /// Open connection to SMC
-    func open() throws {
+    public func open() throws {
         lock.lock()
         defer { lock.unlock() }
 
@@ -139,7 +144,7 @@ class SMCManager {
     }
 
     /// Close connection to SMC
-    func close() {
+    public func close() {
         lock.lock()
         defer { lock.unlock() }
 
@@ -152,7 +157,7 @@ class SMCManager {
     // MARK: - Key Operations
 
     /// Read SMC key and return raw value
-    func readKey(_ key: String) throws -> SMCValue {
+    public func readKey(_ key: String) throws -> SMCValue {
         try open()
 
         var inputStruct = SMCKeyData()
@@ -177,7 +182,7 @@ class SMCManager {
     }
 
     /// Write SMC key with value
-    func writeKey(_ key: String, value: SMCValue) throws {
+    public func writeKey(_ key: String, value: SMCValue) throws {
         try open()
 
         var inputStruct = SMCKeyData()
@@ -221,7 +226,7 @@ class SMCManager {
     // MARK: - Temperature Reading
 
     /// Read temperature from sensor key (returns Celsius)
-    func readTemperature(key: String) -> Double? {
+    public func readTemperature(key: String) -> Double? {
         do {
             let value = try readKey(key)
             return value.toTemperature()
@@ -231,7 +236,7 @@ class SMCManager {
     }
 
     /// Get CPU temperature (tries multiple keys)
-    func getCPUTemperature() -> Double? {
+    public func getCPUTemperature() -> Double? {
         // Try different CPU temperature keys
         let keys = [
             SMCKeys.cpuDie,
@@ -250,7 +255,7 @@ class SMCManager {
     }
 
     /// Get GPU temperature
-    func getGPUTemperature() -> Double? {
+    public func getGPUTemperature() -> Double? {
         let keys = [SMCKeys.gpuDie, SMCKeys.gpuProximity]
         for key in keys {
             if let temp = readTemperature(key: key), temp > 0 && temp < 150 {
@@ -263,7 +268,7 @@ class SMCManager {
     // MARK: - Fan Operations
 
     /// Get number of fans
-    func getFanCount() -> Int {
+    public func getFanCount() -> Int {
         do {
             let value = try readKey(SMCKeys.fanCount)
             return Int(value.bytes.0)
@@ -273,7 +278,7 @@ class SMCManager {
     }
 
     /// Get fan speed in RPM
-    func getFanSpeed(index: Int) -> Int? {
+    public func getFanSpeed(index: Int) -> Int? {
         do {
             let key = SMCKeys.fanActualSpeed(index)
             let value = try readKey(key)
@@ -284,7 +289,7 @@ class SMCManager {
     }
 
     /// Get minimum fan speed
-    func getFanMinSpeed(index: Int) -> Int? {
+    public func getFanMinSpeed(index: Int) -> Int? {
         do {
             let key = SMCKeys.fanMinSpeed(index)
             let value = try readKey(key)
@@ -295,7 +300,7 @@ class SMCManager {
     }
 
     /// Get maximum fan speed
-    func getFanMaxSpeed(index: Int) -> Int? {
+    public func getFanMaxSpeed(index: Int) -> Int? {
         do {
             let key = SMCKeys.fanMaxSpeed(index)
             let value = try readKey(key)
@@ -306,7 +311,7 @@ class SMCManager {
     }
 
     /// Set fan speed (requires elevated privileges on Apple Silicon)
-    func setFanSpeed(index: Int, speed: Int) throws {
+    public func setFanSpeed(index: Int, speed: Int) throws {
         // For Apple Silicon: Try to unlock fan control first
         try unlockAppleSiliconFanControl()
 
@@ -344,7 +349,7 @@ class SMCManager {
     }
 
     /// Lock fan control back (return to system control)
-    func lockAppleSiliconFanControl() {
+    public func lockAppleSiliconFanControl() {
         var value = SMCValue()
         value.dataSize = 1
         value.bytes.0 = 0
@@ -358,7 +363,7 @@ class SMCManager {
     }
 
     /// Set fan to manual or automatic mode
-    func setFanManualMode(index: Int, manual: Bool) throws {
+    public func setFanManualMode(index: Int, manual: Bool) throws {
         // Try setting force bits
         do {
             let forceValue = try readKey(SMCKeys.fanForce)
@@ -384,7 +389,7 @@ class SMCManager {
     }
 
     /// Reset fan to automatic control
-    func resetFanToAuto(index: Int) throws {
+    public func resetFanToAuto(index: Int) throws {
         try setFanManualMode(index: index, manual: false)
         // Also lock Apple Silicon fan control
         lockAppleSiliconFanControl()
@@ -393,7 +398,7 @@ class SMCManager {
     // MARK: - Discovery
 
     /// Get all available temperature sensors
-    func getAllTemperatureSensors() -> [(key: String, value: Double)] {
+    public func getAllTemperatureSensors() -> [(key: String, value: Double)] {
         var sensors: [(String, Double)] = []
 
         let keys = [
@@ -422,7 +427,7 @@ class SMCManager {
 
 // MARK: - SMC Error
 
-enum SMCError: Error, LocalizedError {
+public enum SMCError: Error, LocalizedError {
     case serviceNotFound
     case connectionFailed(Int32)
     case callFailed(Int32)
@@ -430,7 +435,7 @@ enum SMCError: Error, LocalizedError {
     case invalidKey
     case notSupported
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .serviceNotFound:
             return "SMC service not found. Make sure you're running on a real Mac."
@@ -452,7 +457,7 @@ enum SMCError: Error, LocalizedError {
 
 extension String {
     /// Convert 4-character string to SMC key (UInt32)
-    var smcKey: UInt32 {
+    public var smcKey: UInt32 {
         var result: UInt32 = 0
         let chars = Array(self.utf8)
         for i in 0..<min(4, chars.count) {
@@ -468,7 +473,7 @@ extension String {
 
 extension SMCValue {
     /// Convert SMC value to temperature (Celsius)
-    func toTemperature() -> Double? {
+    public func toTemperature() -> Double? {
         guard dataSize >= 2 else { return nil }
 
         // sp78 format: signed 7.8 fixed point
@@ -477,7 +482,7 @@ extension SMCValue {
     }
 
     /// Convert SMC value to fan speed (RPM)
-    func toFanSpeed() -> Int? {
+    public func toFanSpeed() -> Int? {
         guard dataSize >= 2 else { return nil }
 
         // fpe2 format: unsigned 14.2 fixed point

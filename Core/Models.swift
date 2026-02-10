@@ -1,0 +1,290 @@
+// Models.swift - 数据模型定义
+
+import Foundation
+
+// MARK: - Error Types
+
+public enum AppError: LocalizedError, Equatable {
+    case helperNotInstalled
+    case helperInstallFailed(String)
+    case helperNotFound
+    case sensorAccessFailed
+    case fanControlFailed(String)
+    case fanResetFailed
+    case fanControlUnavailable
+    case settingsLoadFailed(String)
+    case settingsSaveFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .helperNotInstalled:
+            return "请先安装 SMC Helper"
+        case .helperInstallFailed(let detail):
+            return detail
+        case .helperNotFound:
+            return "找不到 smc_helper 文件"
+        case .sensorAccessFailed:
+            return "无法访问传感器"
+        case .fanControlFailed(let detail):
+            return "无法设置风扇速度: \(detail)"
+        case .fanResetFailed:
+            return "无法重置风扇"
+        case .fanControlUnavailable:
+            return "此 Mac 无法手动控制风扇"
+        case .settingsLoadFailed(let detail):
+            return "配置加载失败: \(detail)"
+        case .settingsSaveFailed(let detail):
+            return "配置保存失败: \(detail)"
+        }
+    }
+}
+
+// MARK: - Data Models
+
+/// Unified temperature reading (shared across providers)
+public struct TemperatureReading: Equatable {
+    public let name: String
+    public let temperature: Double
+
+    public init(name: String, temperature: Double) {
+        self.name = name
+        self.temperature = temperature
+    }
+}
+
+// MARK: - Protocols
+
+/// Protocol for temperature data providers
+public protocol TemperatureProvider {
+    func getTemperatures() -> [TemperatureReading]
+    func getCPUTemperature() -> Double?
+    func getMaxTemperature() -> Double?
+}
+
+/// Protocol for fan control operations
+public protocol FanControlProvider: Sendable {
+    var isAvailable: Bool { get }
+    func getFanCount() -> Int
+    func getFanData() -> [FanDataSnapshot]
+    func setFanSpeed(_ rpm: Int) -> Bool
+    func resetToAuto() -> Bool
+}
+
+/// Snapshot of fan data from a provider
+public struct FanDataSnapshot {
+    public let index: Int
+    public let currentSpeed: Int
+    public let minSpeed: Int
+    public let maxSpeed: Int
+    public let mode: Int  // 0 = auto, 1 = manual
+
+    public init(index: Int, currentSpeed: Int, minSpeed: Int, maxSpeed: Int, mode: Int) {
+        self.index = index
+        self.currentSpeed = currentSpeed
+        self.minSpeed = minSpeed
+        self.maxSpeed = maxSpeed
+        self.mode = mode
+    }
+}
+/// Fan information
+public struct FanInfo: Identifiable, Equatable, Sendable {
+    public let id: Int
+    public var currentSpeed: Int
+    public var minSpeed: Int
+    public var maxSpeed: Int
+    public var targetSpeed: Int?
+    public var isManualMode: Bool
+
+    public init(id: Int, currentSpeed: Int, minSpeed: Int, maxSpeed: Int, targetSpeed: Int? = nil, isManualMode: Bool) {
+        self.id = id
+        self.currentSpeed = currentSpeed
+        self.minSpeed = minSpeed
+        self.maxSpeed = maxSpeed
+        self.targetSpeed = targetSpeed
+        self.isManualMode = isManualMode
+    }
+
+    public var speedPercentage: Double {
+        guard maxSpeed > minSpeed else { return 0 }
+        return Double(currentSpeed - minSpeed) / Double(maxSpeed - minSpeed) * 100
+    }
+
+    public static func == (lhs: FanInfo, rhs: FanInfo) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.currentSpeed == rhs.currentSpeed &&
+        lhs.minSpeed == rhs.minSpeed &&
+        lhs.maxSpeed == rhs.maxSpeed &&
+        lhs.targetSpeed == rhs.targetSpeed &&
+        lhs.isManualMode == rhs.isManualMode
+    }
+}
+
+/// Temperature sensor information
+public struct TemperatureInfo: Identifiable, Equatable {
+    public let id: String
+    public let name: String
+    public var value: Double
+
+    public init(id: String, name: String, value: Double) {
+        self.id = id
+        self.name = name
+        self.value = value
+    }
+
+    public var formattedValue: String {
+        String(format: "%.1f°C", value)
+    }
+
+    // 静态缓存，避免每次访问 displayName 都重建字典
+    private static let sensorMappings: [String: String] = [
+        "PMU tdie1": "CPU 核心 1", "PMU tdie2": "CPU 核心 2",
+        "PMU tdie3": "CPU 核心 3", "PMU tdie4": "CPU 核心 4",
+        "PMU tdie5": "CPU 核心 5", "PMU tdie6": "CPU 核心 6",
+        "PMU tdie7": "CPU 核心 7", "PMU tdie8": "CPU 核心 8",
+        "PMU tdie9": "CPU 核心 9", "PMU tdie10": "CPU 核心 10",
+        "PMU tdie11": "CPU 核心 11", "PMU tdie12": "CPU 核心 12",
+        "PMU tdie13": "CPU 核心 13", "PMU tdie14": "CPU 核心 14",
+        "PMU2 tdie1": "效率核心 1", "PMU2 tdie2": "效率核心 2",
+        "PMU2 tdie3": "效率核心 3", "PMU2 tdie4": "效率核心 4",
+        "PMU2 tdie5": "效率核心 5", "PMU2 tdie6": "效率核心 6",
+        "PMU2 tdie7": "效率核心 7", "PMU2 tdie8": "效率核心 8",
+        "PMU2 tdie9": "效率核心 9", "PMU2 tdie10": "效率核心 10",
+        "PMU tdev1": "芯片区域 1", "PMU tdev2": "芯片区域 2",
+        "PMU tdev3": "芯片区域 3", "PMU tdev4": "芯片区域 4",
+        "PMU tdev5": "芯片区域 5", "PMU tdev6": "芯片区域 6",
+        "PMU tdev7": "芯片区域 7", "PMU tdev8": "芯片区域 8",
+        "PMU2 tdev1": "效率芯片区域 1", "PMU2 tdev2": "效率芯片区域 2",
+        "PMU2 tdev3": "效率芯片区域 3", "PMU2 tdev4": "效率芯片区域 4",
+        "PMU2 tdev5": "效率芯片区域 5",
+        "PMU tcal": "PMU 校准", "PMU2 tcal": "PMU2 校准",
+        "NAND CH0 temp": "SSD 温度",
+    ]
+
+    /// 友好的中文名称
+    public var displayName: String {
+        if let mapped = Self.sensorMappings[name] {
+            return mapped
+        }
+
+        // 通用模式匹配
+        if name.contains("tdie") {
+            if name.contains("PMU2") {
+                return name.replacingOccurrences(of: "PMU2 tdie", with: "效率核心 ")
+            }
+            return name.replacingOccurrences(of: "PMU tdie", with: "CPU 核心 ")
+        }
+        if name.contains("tdev") {
+            if name.contains("PMU2") {
+                return name.replacingOccurrences(of: "PMU2 tdev", with: "效率区域 ")
+            }
+            return name.replacingOccurrences(of: "PMU tdev", with: "芯片区域 ")
+        }
+        if name.contains("NAND") {
+            return "SSD"
+        }
+
+        return name
+    }
+
+    public var warningLevel: WarningLevel {
+        if value >= 95 {
+            return .critical
+        } else if value >= 80 {
+            return .warning
+        } else {
+            return .normal
+        }
+    }
+}
+
+/// Temperature warning levels
+public enum WarningLevel {
+    case normal
+    case warning
+    case critical
+}
+
+/// Temperature-based fan curve point
+public struct FanCurvePoint: Codable, Equatable {
+    public var temperature: Double
+    public var fanSpeedPercentage: Double
+
+    public init(temperature: Double, fanSpeedPercentage: Double) {
+        self.temperature = temperature
+        self.fanSpeedPercentage = fanSpeedPercentage
+    }
+}
+
+/// Fan control profile
+public struct FanProfile: Codable, Identifiable, Equatable {
+    public var id: UUID = UUID()
+    public var name: String
+    public var curve: [FanCurvePoint]
+    public var isActive: Bool = false
+
+    public init(name: String, curve: [FanCurvePoint], isActive: Bool = false) {
+        self.id = UUID()
+        self.name = name
+        self.curve = curve
+        self.isActive = isActive
+    }
+
+    public static let silent = FanProfile(
+        name: "静音",
+        curve: [
+            FanCurvePoint(temperature: 40, fanSpeedPercentage: 20),
+            FanCurvePoint(temperature: 60, fanSpeedPercentage: 35),
+            FanCurvePoint(temperature: 75, fanSpeedPercentage: 50),
+            FanCurvePoint(temperature: 85, fanSpeedPercentage: 75),
+            FanCurvePoint(temperature: 95, fanSpeedPercentage: 100),
+        ]
+    )
+
+    public static let balanced = FanProfile(
+        name: "平衡",
+        curve: [
+            FanCurvePoint(temperature: 40, fanSpeedPercentage: 30),
+            FanCurvePoint(temperature: 55, fanSpeedPercentage: 45),
+            FanCurvePoint(temperature: 70, fanSpeedPercentage: 65),
+            FanCurvePoint(temperature: 80, fanSpeedPercentage: 85),
+            FanCurvePoint(temperature: 90, fanSpeedPercentage: 100),
+        ]
+    )
+
+    public static let performance = FanProfile(
+        name: "性能",
+        curve: [
+            FanCurvePoint(temperature: 35, fanSpeedPercentage: 40),
+            FanCurvePoint(temperature: 50, fanSpeedPercentage: 60),
+            FanCurvePoint(temperature: 65, fanSpeedPercentage: 80),
+            FanCurvePoint(temperature: 75, fanSpeedPercentage: 95),
+            FanCurvePoint(temperature: 85, fanSpeedPercentage: 100),
+        ]
+    )
+
+    public func targetSpeedPercentage(for temperature: Double) -> Double {
+        guard !curve.isEmpty else { return 50 }
+
+        let sortedCurve = curve.sorted { $0.temperature < $1.temperature }
+
+        if temperature <= sortedCurve.first!.temperature {
+            return sortedCurve.first!.fanSpeedPercentage
+        }
+
+        if temperature >= sortedCurve.last!.temperature {
+            return sortedCurve.last!.fanSpeedPercentage
+        }
+
+        for i in 0..<(sortedCurve.count - 1) {
+            let lower = sortedCurve[i]
+            let upper = sortedCurve[i + 1]
+
+            if temperature >= lower.temperature && temperature <= upper.temperature {
+                let ratio = (temperature - lower.temperature) / (upper.temperature - lower.temperature)
+                return lower.fanSpeedPercentage + ratio * (upper.fanSpeedPercentage - lower.fanSpeedPercentage)
+            }
+        }
+
+        return 50
+    }
+}

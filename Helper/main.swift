@@ -2,6 +2,7 @@
 // 此程序以 root 权限运行，提供 SMC 访问服务
 
 import Foundation
+import SMCKit
 
 // MARK: - Helper Tool 实现
 
