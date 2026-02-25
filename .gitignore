@@ -23,3 +23,5 @@ smc_helper
 # Temporary files
 *.log
 /tmp/
+MacFanControl.app/
+MacFanControl*.zip
