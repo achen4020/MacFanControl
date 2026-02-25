@@ -1,6 +1,12 @@
 # Mac 风扇控制 (MacFanControl)
 
+![macOS](https://img.shields.io/badge/macOS-13.0+-000000?style=flat-square&logo=apple)
+![Swift](https://img.shields.io/badge/Swift-5.9+-FA7343?style=flat-square&logo=swift)
+![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)
+![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)
+
 一个支持 Apple Silicon (M1/M2/M3/M4) 的 macOS 风扇监控和控制工具。
+
 
 ## 功能特点
 
