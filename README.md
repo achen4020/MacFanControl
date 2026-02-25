@@ -1,24 +1,31 @@
-# Mac 风扇控制 (MacFanControl)
+<div align="center">
+  <img src="logo.png" alt="MacFanControl Logo" width="128" style="border-radius: 20px;" />
 
-![macOS](https://img.shields.io/badge/macOS-13.0+-000000?style=flat-square&logo=apple)
-![Swift](https://img.shields.io/badge/Swift-5.9+-FA7343?style=flat-square&logo=swift)
-![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)
-![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)
+  # Mac 风扇控制 (MacFanControl)
 
-一个支持 Apple Silicon (M1/M2/M3/M4) 的 macOS 风扇监控和控制工具。
+  **Apple Silicon / Intel Mac 的高级风扇监控和控制系统**
 
+  ![macOS](https://img.shields.io/badge/macOS-13.0+-000000?style=flat-square&logo=apple)
+  ![Swift](https://img.shields.io/badge/Swift-5.9+-FA7343?style=flat-square&logo=swift)
+  ![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)
+  ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)
+</div>
 
-## 功能特点
+<br />
 
-- 实时温度监测 — 通过 HID 传感器显示 CPU 各核心温度
-- 风扇转速显示 — 实时显示风扇 RPM 和百分比
-- 手动控制 — 通过滑块自定义风扇转速
-- 自动控制 — 根据温度曲线自动调节转速
-- 预设配置 — 静音/平衡/性能三种模式 + 自定义曲线编辑
-- 系统监控 — CPU 使用率、内存占用实时显示
-- 高温通知 — 温度超过阈值时发送系统通知
-- 开机启动 — 支持设置登录时自动启动
-- 菜单栏应用 — 在状态栏显示温度，不占用 Dock
+> 专为 M1/M2/M3/M4 系列芯片设计的纯原生 SwiftUI macOS 应用。提供多达 20+ 个 HID 硬件传感器的实时探测和无级别的系统级风扇控制能力。
+
+---
+
+## ✨ 核心亮点
+
+- **🌡️ 深度硬件探测** — 利用私有 HID API，直探基于芯片的真实温度 (性能核心 / 效率核心 / GPU / 内存 / SSD 等)。
+- **💨 丝滑风扇控制** — 实时读取 RPM 及转速百分比，支持无极滑块手动调节。
+- **🤖 智能自动温控** — 提供「静音」、「平衡」、「性能」三种出厂预设曲线。
+- **📈 极客自定义曲线** — 内置专业的可视化风扇响应曲线编辑器。
+- **⏱️ 0 负担后台监控** — CPU 占用与内存统计毫秒级无痛获取，低能耗后台运行。
+- **📣 完善的安全机制** — 超温提醒、熔断保护，开机自启动守护你的爱机。
+- **🪄 隐形 UI 设计** — 纯粹的状态栏 Menu Bar 应用，不占用 Dock，即用即走。
 
 ## 系统要求
 
