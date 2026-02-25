@@ -1,0 +1,33 @@
+name: Feature Request
+description: 建议 MacFanControl 的新功能
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你为 MacFanControl 提出建议！
+  - type: textarea
+    id: problem
+    attributes:
+      label: 这个功能是否解决了一个痛点？
+      description: 请描述一下你遇到了什么问题或不便。例如："我发现当温度过高时没有明显的..."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: 你期望的解决方案
+      description: 请清晰、简洁地描述你希望实现的新功能。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案（可选）
+      description: 描述一下你是否考虑过其他的实现方式或其他软件。
+  - type: textarea
+    id: additional
+    attributes:
+      label: 其他背景信息
+      description: 在这里添加任何其他上下文、草图或屏幕截图。

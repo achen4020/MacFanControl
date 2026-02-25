@@ -1,0 +1,56 @@
+name: Bug Report
+description: 创建一个 Bug 报告以帮助我们改进 MacFanControl
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你花时间反馈 Bug！在提交之前，请检查 [Issues](https://github.com/AlvinChen/MacFanControl/issues) 中是否已有类似的问题。
+  - type: input
+    id: mac_model
+    attributes:
+      label: Mac 型号及芯片
+      description: 例如：MacBook Pro 14" (M3 Max), Mac mini (M4), MacBook Air (M1)
+      placeholder: MacBook Pro (M4 Pro)
+    validations:
+      required: true
+  - type: input
+    id: macos_version
+    attributes:
+      label: macOS 版本
+      description: 例如：14.2 (Sonoma), 15.0 (Sequoia)
+      placeholder: 14.5
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 请详细描述你遇到的问题。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+      description: 你期望程序应该怎么做？
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 重现步骤
+      description: 如何重现这个问题？
+      value: |
+        1. 引发步骤 1
+        2. 引发步骤 2
+        3. 看到错误
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或控制台输出
+      description: 如果可能，请提供 `Console.app` 中的相关崩溃日志或运行日志。
+      render: text
