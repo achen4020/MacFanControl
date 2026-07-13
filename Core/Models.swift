@@ -135,55 +135,42 @@ public struct TemperatureInfo: Identifiable, Equatable {
         String(format: "%.1f°C", value)
     }
 
-    // 静态缓存，避免每次访问 displayName 都重建字典
-    private static let sensorMappings: [String: String] = [
-        "PMU tdie1": "CPU 核心 1", "PMU tdie2": "CPU 核心 2",
-        "PMU tdie3": "CPU 核心 3", "PMU tdie4": "CPU 核心 4",
-        "PMU tdie5": "CPU 核心 5", "PMU tdie6": "CPU 核心 6",
-        "PMU tdie7": "CPU 核心 7", "PMU tdie8": "CPU 核心 8",
-        "PMU tdie9": "CPU 核心 9", "PMU tdie10": "CPU 核心 10",
-        "PMU tdie11": "CPU 核心 11", "PMU tdie12": "CPU 核心 12",
-        "PMU tdie13": "CPU 核心 13", "PMU tdie14": "CPU 核心 14",
-        "PMU2 tdie1": "效率核心 1", "PMU2 tdie2": "效率核心 2",
-        "PMU2 tdie3": "效率核心 3", "PMU2 tdie4": "效率核心 4",
-        "PMU2 tdie5": "效率核心 5", "PMU2 tdie6": "效率核心 6",
-        "PMU2 tdie7": "效率核心 7", "PMU2 tdie8": "效率核心 8",
-        "PMU2 tdie9": "效率核心 9", "PMU2 tdie10": "效率核心 10",
-        "PMU tdev1": "芯片区域 1", "PMU tdev2": "芯片区域 2",
-        "PMU tdev3": "芯片区域 3", "PMU tdev4": "芯片区域 4",
-        "PMU tdev5": "芯片区域 5", "PMU tdev6": "芯片区域 6",
-        "PMU tdev7": "芯片区域 7", "PMU tdev8": "芯片区域 8",
-        "PMU2 tdev1": "效率芯片区域 1", "PMU2 tdev2": "效率芯片区域 2",
-        "PMU2 tdev3": "效率芯片区域 3", "PMU2 tdev4": "效率芯片区域 4",
-        "PMU2 tdev5": "效率芯片区域 5",
-        "PMU tcal": "PMU 校准", "PMU2 tcal": "PMU2 校准",
-        "NAND CH0 temp": "SSD 温度",
-    ]
+    private var cpuChannelNumber: Int? {
+        let prefix = "PMU tdie"
+        guard name.hasPrefix(prefix) else { return nil }
 
-    /// 友好的中文名称
-    public var displayName: String {
-        if let mapped = Self.sensorMappings[name] {
-            return mapped
-        }
+        let suffix = name.dropFirst(prefix.count)
+        guard !suffix.isEmpty,
+              suffix.allSatisfy({ $0.isNumber }),
+              let number = Int(suffix),
+              number > 0 else { return nil }
+        return number
+    }
 
-        // 通用模式匹配
-        if name.contains("tdie") {
-            if name.contains("PMU2") {
-                return name.replacingOccurrences(of: "PMU2 tdie", with: "效率核心 ")
-            }
-            return name.replacingOccurrences(of: "PMU tdie", with: "CPU 核心 ")
+    /// User-facing name for sensors whose hardware meaning is reliable.
+    public var displayName: String? {
+        if let channel = cpuChannelNumber {
+            return "CPU 温度通道 \(channel)"
         }
-        if name.contains("tdev") {
-            if name.contains("PMU2") {
-                return name.replacingOccurrences(of: "PMU2 tdev", with: "效率区域 ")
-            }
-            return name.replacingOccurrences(of: "PMU tdev", with: "芯片区域 ")
-        }
-        if name.contains("NAND") {
+        if name == "NAND CH0 temp" {
             return "SSD"
         }
+        return nil
+    }
 
-        return name
+    /// Natural ordering for the display whitelist. SSD follows CPU channels.
+    public var displaySortOrder: Int? {
+        if let channel = cpuChannelNumber {
+            return channel
+        }
+        if name == "NAND CH0 temp" {
+            return 10_000
+        }
+        return nil
+    }
+
+    public var isDisplayable: Bool {
+        displayName != nil
     }
 
     public var warningLevel: WarningLevel {

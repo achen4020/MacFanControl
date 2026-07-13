@@ -80,27 +80,42 @@ final class ModelsTests: XCTestCase {
 
     func testDisplayName_knownSensor() {
         let info = TemperatureInfo(id: "t1", name: "PMU tdie1", value: 50)
-        XCTAssertEqual(info.displayName, "CPU 核心 1")
-    }
-
-    func testDisplayName_efficiencyCore() {
-        let info = TemperatureInfo(id: "t1", name: "PMU2 tdie3", value: 50)
-        XCTAssertEqual(info.displayName, "效率核心 3")
+        XCTAssertEqual(info.displayName, "CPU 温度通道 1")
     }
 
     func testDisplayName_ssd() {
         let info = TemperatureInfo(id: "t1", name: "NAND CH0 temp", value: 40)
-        XCTAssertEqual(info.displayName, "SSD 温度")
+        XCTAssertEqual(info.displayName, "SSD")
     }
 
-    func testDisplayName_unknownFallback() {
-        let info = TemperatureInfo(id: "t1", name: "Unknown Sensor", value: 50)
-        XCTAssertEqual(info.displayName, "Unknown Sensor")
+    func testDisplayName_filtersAmbiguousSensors() {
+        let names = [
+            "PMU2 tdie1", "PMU tdev1", "PMU2 tdev1",
+            "PMU tcal", "PMU2 tcal", "Unknown Sensor",
+        ]
+
+        for name in names {
+            let info = TemperatureInfo(id: name, name: name, value: 40)
+            XCTAssertNil(info.displayName, "\(name) should not be displayed")
+            XCTAssertFalse(info.isDisplayable)
+        }
     }
 
-    func testDisplayName_genericTdie() {
-        let info = TemperatureInfo(id: "t1", name: "PMU tdie99", value: 50)
-        XCTAssertEqual(info.displayName, "CPU 核心 99")
+    func testDisplayName_requiresCompleteCPUChannelMatch() {
+        XCTAssertNil(TemperatureInfo(id: "bad", name: "PMU tdie1 extra", value: 40).displayName)
+        XCTAssertNil(TemperatureInfo(id: "zero", name: "PMU tdie0", value: 40).displayName)
+    }
+
+    func testDisplaySortOrder_usesNaturalChannelOrderAndSSDLast() {
+        let names = ["NAND CH0 temp", "PMU tdie10", "PMU tdie2"]
+        let sorted = names
+            .map { TemperatureInfo(id: $0, name: $0, value: 40) }
+            .sorted { $0.displaySortOrder! < $1.displaySortOrder! }
+
+        XCTAssertEqual(
+            sorted.compactMap(\.displayName),
+            ["CPU 温度通道 2", "CPU 温度通道 10", "SSD"]
+        )
     }
 
     // MARK: - FanInfo

@@ -272,7 +272,7 @@ struct TemperatureSection: View {
             }
 
             // Show all detected sensors
-            if fanController.temperatures.count > 1 {
+            if !displayableSensors.isEmpty {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         showMoreSensors.toggle()
@@ -282,7 +282,7 @@ struct TemperatureSection: View {
                         Image(systemName: showMoreSensors ? "chevron.down" : "chevron.right")
                             .font(.caption2)
                             .frame(width: 12)
-                        Text("更多传感器 (\(fanController.temperatures.count))")
+                        Text("更多传感器 (\(displayableSensors.count))")
                             .font(.caption)
                         Spacer()
                     }
@@ -293,20 +293,22 @@ struct TemperatureSection: View {
 
                 if showMoreSensors {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(fanController.temperatures.prefix(12)) { sensor in
-                            HStack {
-                                Text(sensor.displayName)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                Spacer()
-                                Text(sensor.formattedValue)
-                                    .font(.caption)
-                                    .monospacedDigit()
-                                    .foregroundColor(sensorColor(sensor.value))
+                        ForEach(displayableSensors.prefix(12)) { sensor in
+                            if let displayName = sensor.displayName {
+                                HStack {
+                                    Text(displayName)
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text(sensor.formattedValue)
+                                        .font(.caption)
+                                        .monospacedDigit()
+                                        .foregroundColor(sensorColor(sensor.value))
+                                }
                             }
                         }
-                        if fanController.temperatures.count > 12 {
-                            Text("... 还有 \(fanController.temperatures.count - 12) 个传感器")
+                        if displayableSensors.count > 12 {
+                            Text("... 还有 \(displayableSensors.count - 12) 个传感器")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                         }
@@ -322,6 +324,14 @@ struct TemperatureSection: View {
         if temp >= 60 { return .orange }
         if temp >= 45 { return .yellow }
         return .green
+    }
+
+    private var displayableSensors: [TemperatureInfo] {
+        fanController.temperatures
+            .filter(\.isDisplayable)
+            .sorted {
+                ($0.displaySortOrder ?? Int.max) < ($1.displaySortOrder ?? Int.max)
+            }
     }
 
     private var memoryColor: Color {
