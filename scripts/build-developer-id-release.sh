@@ -3,9 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$ROOT_DIR/MacFanControl.app"
-APP_EXECUTABLE="$APP/Contents/MacOS/MacFanControl"
-HELPER_EXECUTABLE="$APP/Contents/Resources/MacFanControlHelper"
+OUTPUT_APP="$ROOT_DIR/MacFanControl.app"
 ENTITLEMENTS="$ROOT_DIR/Sources/MacFanControl.entitlements"
 
 fail() {
@@ -37,8 +35,47 @@ if [[ "$IDENTITY_MATCHED" != true ]]; then
     fail "钥匙串中找不到指定的 Developer ID Application 签名身份"
 fi
 
-WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/macfancontrol-developer-id.XXXXXX")"
-trap 'rm -rf "$WORK_DIR"' EXIT
+WORK_DIR="$(mktemp -d "$ROOT_DIR/.developer-id-release.XXXXXX")"
+chmod 700 "$WORK_DIR"
+STAGED_APP="$WORK_DIR/MacFanControl.app"
+BACKUP_APP="$WORK_DIR/MacFanControl.previous.app"
+APP="$STAGED_APP"
+APP_EXECUTABLE="$STAGED_APP/Contents/MacOS/MacFanControl"
+HELPER_EXECUTABLE="$STAGED_APP/Contents/Resources/MacFanControlHelper"
+PUBLISH_STARTED=false
+PUBLISH_COMPLETE=false
+HAD_OUTPUT=false
+
+cleanup() {
+    local exit_status=$?
+    local can_remove_work_dir=true
+    trap - EXIT INT TERM HUP
+    set +e
+
+    if [[ "$PUBLISH_COMPLETE" != true ]]; then
+        if [[ -e "$BACKUP_APP" ]]; then
+            if ! rm -rf "$OUTPUT_APP"; then
+                can_remove_work_dir=false
+            elif ! mv "$BACKUP_APP" "$OUTPUT_APP"; then
+                can_remove_work_dir=false
+            fi
+        elif [[ "$PUBLISH_STARTED" == true && "$HAD_OUTPUT" != true ]]; then
+            rm -rf "$OUTPUT_APP"
+        fi
+    fi
+
+    if [[ "$can_remove_work_dir" == true ]]; then
+        rm -rf "$WORK_DIR"
+    else
+        printf '警告：旧应用恢复失败，备份保留在：%s\n' "$BACKUP_APP" >&2
+    fi
+    exit "$exit_status"
+}
+
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 APP_ARM_SCRATCH="$WORK_DIR/app-arm64"
 APP_X86_SCRATCH="$WORK_DIR/app-x86_64"
@@ -74,7 +111,6 @@ HELPER_X86_BIN_DIR="$(swift build --package-path "$ROOT_DIR" -c release --arch x
 [[ -x "$HELPER_ARM_BIN_DIR/MacFanControlHelper" ]] || fail "arm64 Helper 产物不存在"
 [[ -x "$HELPER_X86_BIN_DIR/MacFanControlHelper" ]] || fail "x86_64 Helper 产物不存在"
 
-rm -rf "$APP"
 mkdir -p \
     "$APP/Contents/MacOS" \
     "$APP/Contents/Resources" \
@@ -156,4 +192,15 @@ HELPER_TEAM_ID="$(verify_signature_metadata "$HELPER_EXECUTABLE" "$HELPER_DETAIL
 [[ "$APP_TEAM_ID" == "$HELPER_TEAM_ID" ]] \
     || fail "主应用与 Helper 的 Team ID 不一致"
 
-printf 'Developer ID 应用构建完成：%s\n' "$APP"
+if [[ -e "$OUTPUT_APP" ]]; then
+    HAD_OUTPUT=true
+    mv "$OUTPUT_APP" "$BACKUP_APP" \
+        || fail "无法备份已有的 MacFanControl.app"
+fi
+
+PUBLISH_STARTED=true
+mv "$STAGED_APP" "$OUTPUT_APP" \
+    || fail "无法发布已验证的 MacFanControl.app"
+PUBLISH_COMPLETE=true
+
+printf 'Developer ID 应用构建完成：%s\n' "$OUTPUT_APP"

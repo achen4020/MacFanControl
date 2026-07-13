@@ -124,4 +124,46 @@ assert_identity_rejected "$INSTALLER_NAME"
 assert_identity_rejected 'Developer ID Application:'
 assert_identity_rejected 'Example Org'
 
+require_pattern 'OUTPUT_APP'
+require_pattern 'STAGED_APP'
+require_pattern '\.developer-id-release\.XXXXXX'
+if rg -q '^APP="\$ROOT_DIR/MacFanControl\.app"$' "$SCRIPT"; then
+    fail "build and signing must target a private staged app"
+fi
+
+last_verification_line="$(rg -n 'verify_signature_metadata' "$SCRIPT" | tail -1 | cut -d: -f1)"
+publish_line="$(rg -n 'mv[[:space:]].*"\$STAGED_APP"[[:space:]]+"\$OUTPUT_APP"' "$SCRIPT" \
+    | tail -1 | cut -d: -f1)"
+[[ -n "$last_verification_line" && -n "$publish_line" \
+    && "$publish_line" -gt "$last_verification_line" ]] \
+    || fail "final output must be published only after signature metadata verification"
+
+PIPELINE_ROOT="$IDENTITY_TEST_DIR/pipeline-root"
+mkdir -p \
+    "$PIPELINE_ROOT/scripts" \
+    "$PIPELINE_ROOT/Sources" \
+    "$PIPELINE_ROOT/Helper" \
+    "$PIPELINE_ROOT/MacFanControl.app"
+cp "$SCRIPT" "$PIPELINE_ROOT/scripts/build-developer-id-release.sh"
+cp "$INFO_PLIST" "$PIPELINE_ROOT/Sources/Info.plist"
+cp "$ENTITLEMENTS" "$PIPELINE_ROOT/Sources/MacFanControl.entitlements"
+cp "$LAUNCHD_PLIST" "$PIPELINE_ROOT/Helper/com.macfancontrol.helper.plist"
+cp "$ROOT_DIR/AppIcon.icns" "$PIPELINE_ROOT/AppIcon.icns"
+printf 'keep-existing-output\n' > "$PIPELINE_ROOT/MacFanControl.app/sentinel"
+
+rm -f "$SWIFT_MARKER"
+if PATH="$FAKE_TOOLS:$PATH" \
+    FAKE_SECURITY_IDENTITIES="$FAKE_IDENTITIES" \
+    FAKE_SWIFT_MARKER="$SWIFT_MARKER" \
+    FAKE_SWIFT_MODE=build \
+    FAKE_CODESIGN_FAIL_APP=1 \
+    DEVELOPER_ID_APPLICATION="$DEVELOPER_NAME" \
+    DEVELOPMENT_TEAM='ABCDE12345' \
+    bash "$PIPELINE_ROOT/scripts/build-developer-id-release.sh" >/dev/null 2>&1; then
+    fail "fake app-signing failure unexpectedly succeeded"
+fi
+[[ "$(cat "$PIPELINE_ROOT/MacFanControl.app/sentinel" 2>/dev/null || true)" \
+    == 'keep-existing-output' ]] \
+    || fail "pre-publish failure damaged the existing output app"
+
 printf 'Developer ID release contract checks passed.\n'

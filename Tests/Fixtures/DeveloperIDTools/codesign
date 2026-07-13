@@ -1,0 +1,9 @@
+#!/bin/bash
+
+set -euo pipefail
+
+last_argument="${!#}"
+if [[ "${FAKE_CODESIGN_FAIL_APP:-0}" == '1' && "$last_argument" == *.app ]]; then
+    exit 74
+fi
+exit 0

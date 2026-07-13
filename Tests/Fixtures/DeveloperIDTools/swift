@@ -4,4 +4,42 @@ set -euo pipefail
 
 : "${FAKE_SWIFT_MARKER:?}"
 printf 'called\n' > "$FAKE_SWIFT_MARKER"
-exit 86
+
+if [[ "${FAKE_SWIFT_MODE:-preflight}" == 'preflight' ]]; then
+    exit 86
+fi
+
+scratch_path=
+product=
+show_bin_path=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --scratch-path)
+            scratch_path="$2"
+            shift 2
+            ;;
+        --product)
+            product="$2"
+            shift 2
+            ;;
+        --show-bin-path)
+            show_bin_path=true
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+[[ -n "$scratch_path" ]] || exit 65
+bin_path="$scratch_path/bin"
+if [[ "$show_bin_path" == true ]]; then
+    printf '%s\n' "$bin_path"
+    exit 0
+fi
+
+[[ -n "$product" ]] || exit 66
+mkdir -p "$bin_path"
+printf 'fake executable\n' > "$bin_path/$product"
+chmod 755 "$bin_path/$product"

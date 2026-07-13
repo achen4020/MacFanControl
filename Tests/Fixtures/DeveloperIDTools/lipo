@@ -1,0 +1,21 @@
+#!/bin/bash
+
+set -euo pipefail
+
+if [[ "$1" == '-archs' ]]; then
+    printf 'arm64 x86_64\n'
+    exit 0
+fi
+
+[[ "$1" == '-create' ]] || exit 64
+first_input="$2"
+output=
+while [[ $# -gt 0 ]]; do
+    if [[ "$1" == '-output' ]]; then
+        output="$2"
+        break
+    fi
+    shift
+done
+[[ -n "$output" ]] || exit 65
+cp "$first_input" "$output"
