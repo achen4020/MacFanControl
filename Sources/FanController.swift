@@ -206,12 +206,18 @@ class FanController: ObservableObject {
 
     func retryHelperConnection() {
         refreshHelperRegistrationState()
-        guard helperRegistrationState == .enabled else { return }
-        smcHelper.disconnect()
+        let state = helperRegistrationState
+        let client = smcHelper
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.updateFanInfo()
-            await self.startAutoControlIfAvailable()
+            let attempted = await HelperConnectionRetryCoordinator.retry(
+                for: state,
+                disconnect: { client.disconnect() },
+                request: { [weak self] in await self?.updateFanInfo() }
+            )
+            if attempted {
+                await self.startAutoControlIfAvailable()
+            }
         }
     }
 
