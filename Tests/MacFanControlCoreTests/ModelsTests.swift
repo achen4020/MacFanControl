@@ -157,4 +157,95 @@ final class ModelsTests: XCTestCase {
             XCTAssertEqual(temps, temps.sorted(), "Profile \(profile.name) curve should be sorted")
         }
     }
+
+    // MARK: - Fan Control Settings Persistence
+
+    func testFanControlSettings_roundTripPreservesActiveCustomProfile() throws {
+        let custom = FanProfile(
+            name: "自定义",
+            curve: [FanCurvePoint(temperature: 42, fanSpeedPercentage: 33)],
+            isActive: true
+        )
+        let settings = FanControlSettings(
+            profiles: [.silent, custom],
+            activeProfileID: custom.id,
+            isAutoControlEnabled: true
+        )
+
+        let decoded = try JSONDecoder().decode(
+            FanControlSettings.self,
+            from: JSONEncoder().encode(settings)
+        )
+
+        XCTAssertEqual(decoded, settings)
+    }
+
+    func testFanControlSettings_normalizedDisablesMissingActiveProfile() {
+        let settings = FanControlSettings(
+            profiles: [.balanced],
+            activeProfileID: UUID(),
+            isAutoControlEnabled: true
+        ).normalized()
+
+        XCTAssertNil(settings.activeProfileID)
+        XCTAssertFalse(settings.isAutoControlEnabled)
+        XCTAssertFalse(settings.profiles[0].isActive)
+    }
+
+    func testFanControlSettings_updatingCustomProfileKeepsStableID() throws {
+        let original = FanProfile(
+            name: "自定义",
+            curve: [FanCurvePoint(temperature: 40, fanSpeedPercentage: 30)]
+        )
+        let settings = FanControlSettings(profiles: [.silent, original])
+        let updated = settings.updatingCustomProfile(curve: [
+            FanCurvePoint(temperature: 80, fanSpeedPercentage: 90),
+            FanCurvePoint(temperature: 50, fanSpeedPercentage: 45),
+        ])
+
+        let custom = try XCTUnwrap(updated.profiles.first { $0.name == "自定义" })
+        XCTAssertEqual(custom.id, original.id)
+        XCTAssertEqual(custom.curve.map(\.temperature), [50, 80])
+        XCTAssertEqual(updated.activeProfileID, original.id)
+        XCTAssertTrue(updated.isAutoControlEnabled)
+        XCTAssertTrue(custom.isActive)
+    }
+
+    func testFanControlSettingsStore_migratesLegacyActiveProfile() throws {
+        let suiteName = "ModelsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var legacy = FanProfile.performance
+        legacy.isActive = true
+        defaults.set(
+            try JSONEncoder().encode([FanProfile.silent, legacy]),
+            forKey: FanControlSettingsStore.legacyProfilesKey
+        )
+
+        let store = FanControlSettingsStore(defaults: defaults)
+        let migrated = try XCTUnwrap(store.load())
+
+        XCTAssertEqual(migrated.activeProfileID, legacy.id)
+        XCTAssertTrue(migrated.isAutoControlEnabled)
+        XCTAssertNotNil(defaults.data(forKey: FanControlSettingsStore.settingsKey))
+    }
+
+    func testFanControlSettingsStore_roundTripsCompleteState() throws {
+        let suiteName = "ModelsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let active = FanProfile.silent
+        let expected = FanControlSettings(
+            profiles: [active],
+            activeProfileID: active.id,
+            isAutoControlEnabled: true
+        ).normalized()
+        let store = FanControlSettingsStore(defaults: defaults)
+
+        try store.save(expected)
+
+        XCTAssertEqual(try store.load(), expected)
+    }
 }

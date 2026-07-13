@@ -283,23 +283,7 @@ struct FanCurveEditorView: View {
     }
 
     private func saveAndDismiss() {
-        // 创建新的配置
-        var newProfile = FanProfile(
-            name: "自定义",
-            curve: curvePoints.sorted { $0.temperature < $1.temperature }
-        )
-        newProfile.isActive = true
-
-        // 更新或添加配置
-        if let index = fanController.profiles.firstIndex(where: { $0.name == "自定义" }) {
-            fanController.profiles[index] = newProfile
-        } else {
-            fanController.profiles.append(newProfile)
-        }
-
-        // 启用自动控制
-        fanController.enableAutoControl(profile: newProfile)
-
+        fanController.saveCustomProfile(curve: curvePoints)
         onDismiss?()
     }
 }

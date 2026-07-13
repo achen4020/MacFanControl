@@ -44,6 +44,7 @@ class FanController: ObservableObject {
     private let fanControl: FanControlProvider
     private let cpuLoadMonitor: CPULoadMonitor
     private let memoryMonitor: MemoryMonitor
+    private let settingsStore = FanControlSettingsStore()
     private var monitorTimer: Timer?
     private var autoControlTimer: Timer?
     private var isApplyingAutoControl = false
@@ -164,6 +165,7 @@ class FanController: ObservableObject {
                     self?.lastError = nil
                     // 重新获取风扇信息
                     self?.updateFanInfo()
+                    self?.startAutoControlIfAvailable()
                 } else {
                     self?.lastError = .helperInstallFailed(error ?? "安装失败")
                 }
@@ -187,6 +189,7 @@ class FanController: ObservableObject {
 
         updateTemperatures()
         updateFanInfo()
+        startAutoControlIfAvailable()
 
         monitorTimer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -577,32 +580,38 @@ class FanController: ObservableObject {
     // MARK: - Profile Control
 
     func enableAutoControl(profile: FanProfile) {
-        guard canControlFans else {
-            lastError = .fanControlUnavailable
-            return
-        }
-
-        activeProfile = profile
         isAutoControlEnabled = true
 
         for i in 0..<profiles.count {
             profiles[i].isActive = profiles[i].id == profile.id
         }
+        activeProfile = profiles.first { $0.id == profile.id } ?? profile
+        saveSettings()
+
+        guard canControlFans else {
+            lastError = .fanControlUnavailable
+            return
+        }
+
+        lastError = nil
+        startAutoControlIfAvailable()
+    }
+
+    private func startAutoControlIfAvailable() {
+        guard isAutoControlEnabled, activeProfile != nil, canControlFans else { return }
 
         autoControlTimer?.invalidate()
         autoControlTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self = self, !self.isApplyingAutoControl else { return }
+                guard let self, !self.isApplyingAutoControl else { return }
                 self.applyAutoControl()
             }
         }
-
         applyAutoControl()
-        saveSettings()
     }
 
     private func applyAutoControl() {
-        guard isAutoControlEnabled, let profile = activeProfile else { return }
+        guard isAutoControlEnabled, let profile = activeProfile, !fans.isEmpty else { return }
 
         isApplyingAutoControl = true
         defer { isApplyingAutoControl = false }
@@ -633,22 +642,51 @@ class FanController: ObservableObject {
         saveSettings()
     }
 
-    // MARK: - Settings
+    func saveCustomProfile(curve: [FanCurvePoint]) {
+        let settings = FanControlSettings(
+            profiles: profiles,
+            activeProfileID: activeProfile?.id,
+            isAutoControlEnabled: isAutoControlEnabled
+        ).updatingCustomProfile(curve: curve)
 
-    private func loadSettings() {
-        if let data = UserDefaults.standard.data(forKey: "fanProfiles") {
-            do {
-                profiles = try JSONDecoder().decode([FanProfile].self, from: data)
-            } catch {
-                lastError = .settingsLoadFailed(error.localizedDescription)
-            }
+        restore(settings)
+        saveSettings()
+        startAutoControlIfAvailable()
+
+        if !canControlFans {
+            lastError = .fanControlUnavailable
         }
     }
 
-    private func saveSettings() {
+    // MARK: - Settings
+
+    private func loadSettings() {
         do {
-            let data = try JSONEncoder().encode(profiles)
-            UserDefaults.standard.set(data, forKey: "fanProfiles")
+            guard let settings = try settingsStore.load() else { return }
+            restore(settings)
+        } catch {
+            lastError = .settingsLoadFailed(error.localizedDescription)
+        }
+    }
+
+    private func restore(_ settings: FanControlSettings) {
+        let normalized = settings.normalized()
+        profiles = normalized.profiles
+        activeProfile = normalized.activeProfileID.flatMap { id in
+            normalized.profiles.first { $0.id == id }
+        }
+        isAutoControlEnabled = normalized.isAutoControlEnabled && activeProfile != nil
+    }
+
+    private func saveSettings() {
+        let settings = FanControlSettings(
+            profiles: profiles,
+            activeProfileID: activeProfile?.id,
+            isAutoControlEnabled: isAutoControlEnabled
+        ).normalized()
+
+        do {
+            try settingsStore.save(settings)
         } catch {
             lastError = .settingsSaveFailed(error.localizedDescription)
         }

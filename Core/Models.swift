@@ -288,3 +288,98 @@ public struct FanProfile: Codable, Identifiable, Equatable {
         return 50
     }
 }
+
+/// Complete persisted state for fan profiles and automatic control.
+public struct FanControlSettings: Codable, Equatable {
+    public var profiles: [FanProfile]
+    public var activeProfileID: UUID?
+    public var isAutoControlEnabled: Bool
+
+    public init(
+        profiles: [FanProfile],
+        activeProfileID: UUID? = nil,
+        isAutoControlEnabled: Bool = false
+    ) {
+        self.profiles = profiles
+        self.activeProfileID = activeProfileID
+        self.isAutoControlEnabled = isAutoControlEnabled
+    }
+
+    /// Keeps the selected profile and each profile's display state consistent.
+    public func normalized() -> FanControlSettings {
+        var result = self
+        let hasActiveProfile = result.activeProfileID.map { id in
+            result.profiles.contains { $0.id == id }
+        } ?? false
+
+        if !result.isAutoControlEnabled || !hasActiveProfile {
+            result.activeProfileID = nil
+            result.isAutoControlEnabled = false
+        }
+
+        for index in result.profiles.indices {
+            result.profiles[index].isActive =
+                result.isAutoControlEnabled && result.profiles[index].id == result.activeProfileID
+        }
+        return result
+    }
+
+    /// Adds or replaces the custom curve while preserving its stable identifier.
+    public func updatingCustomProfile(curve: [FanCurvePoint]) -> FanControlSettings {
+        var result = self
+        let sortedCurve = curve.sorted { $0.temperature < $1.temperature }
+        let customID: UUID
+
+        if let index = result.profiles.firstIndex(where: { $0.name == "自定义" }) {
+            customID = result.profiles[index].id
+            result.profiles[index].curve = sortedCurve
+        } else {
+            let profile = FanProfile(name: "自定义", curve: sortedCurve)
+            customID = profile.id
+            result.profiles.append(profile)
+        }
+
+        result.activeProfileID = customID
+        result.isAutoControlEnabled = true
+        return result.normalized()
+    }
+}
+
+/// Encodes complete settings and migrates the legacy profiles-only format.
+public struct FanControlSettingsStore {
+    public static let settingsKey = "fanControlSettings"
+    public static let legacyProfilesKey = "fanProfiles"
+
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    public func load() throws -> FanControlSettings? {
+        if let data = defaults.data(forKey: Self.settingsKey) {
+            return try JSONDecoder()
+                .decode(FanControlSettings.self, from: data)
+                .normalized()
+        }
+
+        guard let legacyData = defaults.data(forKey: Self.legacyProfilesKey) else {
+            return nil
+        }
+
+        let profiles = try JSONDecoder().decode([FanProfile].self, from: legacyData)
+        let activeID = profiles.first(where: \.isActive)?.id
+        let migrated = FanControlSettings(
+            profiles: profiles,
+            activeProfileID: activeID,
+            isAutoControlEnabled: activeID != nil
+        ).normalized()
+        try save(migrated)
+        return migrated
+    }
+
+    public func save(_ settings: FanControlSettings) throws {
+        let data = try JSONEncoder().encode(settings.normalized())
+        defaults.set(data, forKey: Self.settingsKey)
+    }
+}
