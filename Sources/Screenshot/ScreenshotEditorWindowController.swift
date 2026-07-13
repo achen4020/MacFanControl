@@ -27,7 +27,7 @@ final class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
         window.contentViewController = NSHostingController(rootView: view)
         window.delegate = self
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 720, height: 520)
+        ScreenshotEditorWindowLayout.apply(to: window)
         window.center()
         documents[window] = viewModel
         eventMonitors[window] = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
