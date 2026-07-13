@@ -12,7 +12,7 @@ echo "=== 构建 Mac 风扇控制应用 ==="
 echo ""
 
 # 1. 编译 Swift 应用 (Release 版本)
-echo "[1/4] 编译 Swift 应用..."
+echo "[1/5] 编译 Swift 应用..."
 swift build -c release 2>&1
 
 if [ $? -ne 0 ]; then
@@ -21,7 +21,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # 2. 编译 smc_helper
-echo "[2/4] 编译 SMC Helper..."
+echo "[2/5] 编译 SMC Helper..."
 clang -framework IOKit -framework CoreFoundation -O2 -o smc_helper smc_helper.c
 
 if [ $? -ne 0 ]; then
@@ -30,7 +30,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # 3. 创建应用程序包
-echo "[3/4] 创建应用程序包..."
+echo "[3/5] 创建应用程序包..."
 
 # 清理旧的应用包
 rm -rf "${APP_BUNDLE}"
@@ -106,7 +106,15 @@ EOF
 # 创建 PkgInfo
 echo -n "APPL????" > "${APP_BUNDLE}/Contents/PkgInfo"
 
-echo "[4/4] 完成!"
+echo "[4/5] 对应用程序包进行临时签名..."
+codesign --force --deep --sign - "${APP_BUNDLE}"
+
+if [ $? -ne 0 ]; then
+    echo "应用程序签名失败"
+    exit 1
+fi
+
+echo "[5/5] 完成!"
 echo ""
 echo "=== 构建成功 ==="
 echo ""
