@@ -37,4 +37,12 @@ final class HelperModelsTests: XCTestCase {
 
         XCTAssertEqual(try HelperPayloadCodec.decodeTemperatures(encoded), snapshots)
     }
+
+    func testDecodeFansRejectsMalformedJSON() {
+        XCTAssertThrowsError(try HelperPayloadCodec.decodeFans(Data("{".utf8)))
+    }
+
+    func testDecodeTemperaturesRejectsMalformedJSON() {
+        XCTAssertThrowsError(try HelperPayloadCodec.decodeTemperatures(Data("not-json".utf8)))
+    }
 }

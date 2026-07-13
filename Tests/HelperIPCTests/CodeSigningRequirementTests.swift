@@ -3,8 +3,9 @@ import XCTest
 
 final class CodeSigningRequirementTests: XCTestCase {
     func testBuildsRequirementBoundToIdentifierAndTeamID() throws {
-        let requirement = try XCTUnwrap(
-            CodeSigningRequirement(identifier: "com.macfancontrol.app", teamID: "ABCDE12345")
+        let requirement = try CodeSigningRequirement(
+            identifier: "com.macfancontrol.app",
+            teamID: "ABCDE12345"
         )
 
         XCTAssertEqual(
@@ -14,15 +15,39 @@ final class CodeSigningRequirementTests: XCTestCase {
     }
 
     func testRejectsInvalidIdentifiers() {
-        XCTAssertNil(CodeSigningRequirement(identifier: "com.macfancontrol.app injected", teamID: "ABCDE12345"))
-        XCTAssertNil(CodeSigningRequirement(identifier: "com.macfancontrol.app\n", teamID: "ABCDE12345"))
-        XCTAssertNil(CodeSigningRequirement(identifier: "", teamID: "ABCDE12345"))
+        assertThrows(
+            identifier: "com.macfancontrol.app injected",
+            teamID: "ABCDE12345",
+            expected: .invalidIdentifier
+        )
+        assertThrows(
+            identifier: "com.macfancontrol.app\n",
+            teamID: "ABCDE12345",
+            expected: .invalidIdentifier
+        )
+        assertThrows(identifier: "", teamID: "ABCDE12345", expected: .invalidIdentifier)
     }
 
     func testRejectsInvalidTeamIDs() {
-        XCTAssertNil(CodeSigningRequirement(identifier: "com.macfancontrol.app", teamID: "abcde12345"))
-        XCTAssertNil(CodeSigningRequirement(identifier: "com.macfancontrol.app", teamID: "ABCDE12345\n"))
-        XCTAssertNil(CodeSigningRequirement(identifier: "com.macfancontrol.app", teamID: "ABCDE1234"))
-        XCTAssertNil(CodeSigningRequirement(identifier: "com.macfancontrol.app", teamID: "ABCDE123456"))
+        assertThrows(identifier: "com.macfancontrol.app", teamID: "abcde12345", expected: .invalidTeamID)
+        assertThrows(identifier: "com.macfancontrol.app", teamID: "ABCDE12345\n", expected: .invalidTeamID)
+        assertThrows(identifier: "com.macfancontrol.app", teamID: "ABCDE1234", expected: .invalidTeamID)
+        assertThrows(identifier: "com.macfancontrol.app", teamID: "ABCDE123456", expected: .invalidTeamID)
+    }
+
+    private func assertThrows(
+        identifier: String,
+        teamID: String,
+        expected: CodeSigningRequirementError,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertThrowsError(
+            try CodeSigningRequirement(identifier: identifier, teamID: teamID),
+            file: file,
+            line: line
+        ) { error in
+            XCTAssertEqual(error as? CodeSigningRequirementError, expected, file: file, line: line)
+        }
     }
 }
