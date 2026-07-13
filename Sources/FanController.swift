@@ -20,6 +20,7 @@ class FanController: ObservableObject {
     @Published var gpuTemperature: Double?
     @Published var ssdTemperature: Double?
     @Published var storageUsage: StorageUsage?
+    @Published var networkSpeed = NetworkSpeed.zero
     @Published var cpuUsage: Double = 0
     @Published var memoryUsage: Double = 0
     @Published var memoryUsed: String = ""
@@ -47,6 +48,7 @@ class FanController: ObservableObject {
     private let cpuLoadMonitor: CPULoadMonitor
     private let memoryMonitor: MemoryMonitor
     private let storageMonitor: StorageMonitor
+    private let networkMonitor: NetworkMonitor
     private let settingsStore = FanControlSettingsStore()
     private var monitorTimer: Timer?
     private var autoControlTimer: Timer?
@@ -63,7 +65,8 @@ class FanController: ObservableObject {
         smcHelper: SMCHelperClient = .shared,
         cpuLoadMonitor: CPULoadMonitor = CPULoadMonitor(),
         memoryMonitor: MemoryMonitor = MemoryMonitor(),
-        storageMonitor: StorageMonitor = StorageMonitor()
+        storageMonitor: StorageMonitor = StorageMonitor(),
+        networkMonitor: NetworkMonitor = NetworkMonitor()
     ) {
         self.smc = smc
         self.temperatureProvider = temperatureProvider
@@ -72,6 +75,7 @@ class FanController: ObservableObject {
         self.cpuLoadMonitor = cpuLoadMonitor
         self.memoryMonitor = memoryMonitor
         self.storageMonitor = storageMonitor
+        self.networkMonitor = networkMonitor
         detectPlatform()
         loadSettings()
     }
@@ -333,6 +337,11 @@ class FanController: ObservableObject {
         let newStorageUsage = storageMonitor.getStorageUsage()
         if storageUsage != newStorageUsage {
             storageUsage = newStorageUsage
+        }
+
+        let newNetworkSpeed = networkMonitor.getNetworkSpeed()
+        if networkSpeed != newNetworkSpeed {
+            networkSpeed = newNetworkSpeed
         }
 
         // 温度读取移到后台线程 (HID API 调用较重)

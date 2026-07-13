@@ -2,6 +2,7 @@
 
 import Foundation
 import MacFanControlCore
+import Darwin
 // MARK: - CPU 负载监测
 
 class CPULoadMonitor {
@@ -171,5 +172,76 @@ class StorageMonitor {
 
         cachedUsage = usage
         return usage
+    }
+}
+
+// MARK: - Physical Network Monitoring
+
+class NetworkMonitor {
+    private var previousSnapshot: NetworkTransferSnapshot?
+
+    func getNetworkSpeed() -> NetworkSpeed {
+        guard let current = captureSnapshot() else {
+            previousSnapshot = nil
+            return .zero
+        }
+
+        defer { previousSnapshot = current }
+        guard let previousSnapshot else { return .zero }
+        return NetworkSpeed.between(previous: previousSnapshot, current: current)
+    }
+
+    private func captureSnapshot() -> NetworkTransferSnapshot? {
+        var addresses: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&addresses) == 0, let firstAddress = addresses else {
+            return nil
+        }
+        defer { freeifaddrs(firstAddress) }
+
+        var activeInterfaces = Set<String>()
+        var cursor: UnsafeMutablePointer<ifaddrs>? = firstAddress
+
+        while let current = cursor {
+            let interface = current.pointee
+            let name = String(cString: interface.ifa_name)
+            let flags = Int32(interface.ifa_flags)
+            let family = interface.ifa_addr.map { Int32($0.pointee.sa_family) }
+
+            if name.hasPrefix("en"),
+               (flags & IFF_UP) != 0,
+               (flags & IFF_RUNNING) != 0,
+               family == AF_INET || family == AF_INET6 {
+                activeInterfaces.insert(name)
+            }
+
+            cursor = interface.ifa_next
+        }
+
+        var receivedBytes: UInt64 = 0
+        var sentBytes: UInt64 = 0
+        cursor = firstAddress
+
+        while let current = cursor {
+            let interface = current.pointee
+            let name = String(cString: interface.ifa_name)
+            let family = interface.ifa_addr.map { Int32($0.pointee.sa_family) }
+
+            if activeInterfaces.contains(name),
+               family == AF_LINK,
+               let rawData = interface.ifa_data {
+                let data = rawData.assumingMemoryBound(to: if_data.self).pointee
+                receivedBytes += UInt64(data.ifi_ibytes)
+                sentBytes += UInt64(data.ifi_obytes)
+            }
+
+            cursor = interface.ifa_next
+        }
+
+        return NetworkTransferSnapshot(
+            timestamp: Date(),
+            receivedBytes: receivedBytes,
+            sentBytes: sentBytes,
+            interfaces: activeInterfaces
+        )
     }
 }

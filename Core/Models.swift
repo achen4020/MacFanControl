@@ -233,6 +233,75 @@ public struct StorageUsage: Equatable {
     }
 }
 
+/// Cumulative network counters captured at one point in time.
+public struct NetworkTransferSnapshot: Equatable {
+    public let timestamp: Date
+    public let receivedBytes: UInt64
+    public let sentBytes: UInt64
+    public let interfaces: Set<String>
+
+    public init(
+        timestamp: Date,
+        receivedBytes: UInt64,
+        sentBytes: UInt64,
+        interfaces: Set<String>
+    ) {
+        self.timestamp = timestamp
+        self.receivedBytes = receivedBytes
+        self.sentBytes = sentBytes
+        self.interfaces = interfaces
+    }
+}
+
+/// Aggregate transfer rates for active physical network interfaces.
+public struct NetworkSpeed: Equatable {
+    public let downloadBytesPerSecond: Double
+    public let uploadBytesPerSecond: Double
+
+    public init(downloadBytesPerSecond: Double, uploadBytesPerSecond: Double) {
+        self.downloadBytesPerSecond = max(0, downloadBytesPerSecond)
+        self.uploadBytesPerSecond = max(0, uploadBytesPerSecond)
+    }
+
+    public static let zero = NetworkSpeed(
+        downloadBytesPerSecond: 0,
+        uploadBytesPerSecond: 0
+    )
+
+    public static func between(
+        previous: NetworkTransferSnapshot,
+        current: NetworkTransferSnapshot
+    ) -> NetworkSpeed {
+        let elapsed = current.timestamp.timeIntervalSince(previous.timestamp)
+        guard !current.interfaces.isEmpty,
+              current.interfaces == previous.interfaces,
+              elapsed > 0,
+              current.receivedBytes >= previous.receivedBytes,
+              current.sentBytes >= previous.sentBytes else {
+            return .zero
+        }
+
+        return NetworkSpeed(
+            downloadBytesPerSecond: Double(current.receivedBytes - previous.receivedBytes) / elapsed,
+            uploadBytesPerSecond: Double(current.sentBytes - previous.sentBytes) / elapsed
+        )
+    }
+
+    public static func format(bytesPerSecond: Double) -> String {
+        let value = max(0, bytesPerSecond)
+        if value >= 1_000_000_000 {
+            return String(format: "%.1f GB/s", value / 1_000_000_000)
+        }
+        if value >= 1_000_000 {
+            return String(format: "%.1f MB/s", value / 1_000_000)
+        }
+        if value >= 1_000 {
+            return String(format: "%.1f KB/s", value / 1_000)
+        }
+        return String(format: "%.1f B/s", value)
+    }
+}
+
 /// Temperature-based fan curve point
 public struct FanCurvePoint: Codable, Equatable {
     public var temperature: Double

@@ -290,6 +290,21 @@ struct TemperatureSection: View {
                         .foregroundColor(storageColor(storage.percentage))
                 }
             }
+
+            HStack {
+                Image(systemName: "network")
+                    .frame(width: 20)
+                Text("网络")
+                Spacer()
+                HStack(spacing: 8) {
+                    Text("↓ \(NetworkSpeed.format(bytesPerSecond: fanController.networkSpeed.downloadBytesPerSecond))")
+                        .foregroundColor(.blue)
+                    Text("↑ \(NetworkSpeed.format(bytesPerSecond: fanController.networkSpeed.uploadBytesPerSecond))")
+                        .foregroundColor(.green)
+                }
+                .font(.caption)
+                .monospacedDigit()
+            }
         }
     }
 

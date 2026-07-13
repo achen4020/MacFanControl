@@ -150,6 +150,67 @@ final class ModelsTests: XCTestCase {
         XCTAssertNil(StorageUsage(total: 100, available: 101))
     }
 
+    // MARK: - NetworkSpeed
+
+    func testNetworkSpeed_calculatesRatesUsingElapsedTime() {
+        let previous = NetworkTransferSnapshot(
+            timestamp: Date(timeIntervalSince1970: 10),
+            receivedBytes: 1_000,
+            sentBytes: 2_000,
+            interfaces: ["en0"]
+        )
+        let current = NetworkTransferSnapshot(
+            timestamp: Date(timeIntervalSince1970: 12),
+            receivedBytes: 5_000,
+            sentBytes: 3_000,
+            interfaces: ["en0"]
+        )
+
+        let speed = NetworkSpeed.between(previous: previous, current: current)
+
+        XCTAssertEqual(speed.downloadBytesPerSecond, 2_000)
+        XCTAssertEqual(speed.uploadBytesPerSecond, 500)
+    }
+
+    func testNetworkSpeed_rejectsDiscontinuousSnapshots() {
+        let base = NetworkTransferSnapshot(
+            timestamp: Date(timeIntervalSince1970: 10),
+            receivedBytes: 2_000,
+            sentBytes: 2_000,
+            interfaces: ["en0"]
+        )
+        let changed = NetworkTransferSnapshot(
+            timestamp: Date(timeIntervalSince1970: 12),
+            receivedBytes: 3_000,
+            sentBytes: 3_000,
+            interfaces: ["en1"]
+        )
+        let reset = NetworkTransferSnapshot(
+            timestamp: Date(timeIntervalSince1970: 12),
+            receivedBytes: 1_000,
+            sentBytes: 1_000,
+            interfaces: ["en0"]
+        )
+        let invalidTime = NetworkTransferSnapshot(
+            timestamp: Date(timeIntervalSince1970: 10),
+            receivedBytes: 3_000,
+            sentBytes: 3_000,
+            interfaces: ["en0"]
+        )
+
+        XCTAssertEqual(NetworkSpeed.between(previous: base, current: changed), .zero)
+        XCTAssertEqual(NetworkSpeed.between(previous: base, current: reset), .zero)
+        XCTAssertEqual(NetworkSpeed.between(previous: base, current: invalidTime), .zero)
+    }
+
+    func testNetworkSpeed_formatsUnits() {
+        XCTAssertEqual(NetworkSpeed.format(bytesPerSecond: 500), "500.0 B/s")
+        XCTAssertEqual(NetworkSpeed.format(bytesPerSecond: 1_500), "1.5 KB/s")
+        XCTAssertEqual(NetworkSpeed.format(bytesPerSecond: 2_500_000), "2.5 MB/s")
+        XCTAssertEqual(NetworkSpeed.format(bytesPerSecond: 3_500_000_000), "3.5 GB/s")
+        XCTAssertEqual(NetworkSpeed.format(bytesPerSecond: -1), "0.0 B/s")
+    }
+
     // MARK: - FanInfo
 
     func testFanSpeedPercentage() {
