@@ -7,14 +7,11 @@ final class SMCHelperClient: FanControlProvider, @unchecked Sendable {
 
     private enum ClientError: LocalizedError {
         case proxyUnavailable
-        case helperInstallationUnavailable
 
         var errorDescription: String? {
             switch self {
             case .proxyUnavailable:
                 return "无法建立 Helper XPC 代理"
-            case .helperInstallationUnavailable:
-                return "Helper 安装将在 SMAppService 接管后启用"
             }
         }
     }
@@ -137,8 +134,15 @@ final class SMCHelperClient: FanControlProvider, @unchecked Sendable {
         return snapshots
     }
 
-    func installHelperIfNeeded(completion: @escaping (Bool, String?) -> Void) {
-        completion(false, ClientError.helperInstallationUnavailable.localizedDescription)
+    func removeLegacyHelper() async -> Bool {
+        await performBooleanRequest { proxy, reply in
+            proxy.removeLegacyHelper(reply: reply)
+        }
+    }
+
+    func disconnect() {
+        guard let connection = connectionLifecycle.current() else { return }
+        connectionLifecycle.invalidate(connection)
     }
 
     private func performBooleanRequest(

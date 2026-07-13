@@ -4,6 +4,7 @@ import Foundation
 import Combine
 import IOKit
 import UserNotifications
+@preconcurrency import HelperIPC
 @preconcurrency import MacFanControlCore
 @preconcurrency import SMCKit
 // MARK: - Fan Controller
@@ -36,7 +37,7 @@ class FanController: ObservableObject {
     @Published var temperatureSource: String = "未知"
     @Published var sensorCount: Int = 0
     @Published var isInstallingHelper = false
-    @Published var needsHelperInstall = false
+    @Published var helperRegistrationState: HelperRegistrationState = .notFound
 
     @Published var profiles: [FanProfile] = [.silent, .balanced, .performance]
 
@@ -44,6 +45,7 @@ class FanController: ObservableObject {
     private let smc: SMCManager
     private let temperatureProvider: TemperatureProvider
     private let smcHelper: SMCHelperClient
+    private let helperServiceManager: HelperServiceManager
     private let fanControl: FanControlProvider
     private let cpuLoadMonitor: CPULoadMonitor
     private let memoryMonitor: MemoryMonitor
@@ -64,6 +66,7 @@ class FanController: ObservableObject {
         smc: SMCManager = .shared,
         temperatureProvider: TemperatureProvider = M4TempReader(),
         smcHelper: SMCHelperClient = .shared,
+        helperServiceManager: HelperServiceManager? = nil,
         cpuLoadMonitor: CPULoadMonitor = CPULoadMonitor(),
         memoryMonitor: MemoryMonitor = MemoryMonitor(),
         storageMonitor: StorageMonitor = StorageMonitor(),
@@ -72,6 +75,7 @@ class FanController: ObservableObject {
         self.smc = smc
         self.temperatureProvider = temperatureProvider
         self.smcHelper = smcHelper
+        self.helperServiceManager = helperServiceManager ?? .shared
         self.fanControl = smcHelper
         self.cpuLoadMonitor = cpuLoadMonitor
         self.memoryMonitor = memoryMonitor
@@ -117,8 +121,7 @@ class FanController: ObservableObject {
         // 所有 Apple Silicon Mac 都可以通过 SMC Helper daemon 控制风扇
         canControlFans = fanControl.isAvailable
 
-        // 所有 Apple Silicon Mac 都需要安装 helper 来控制风扇
-        needsHelperInstall = isAppleSilicon && !fanControl.isAvailable
+        refreshHelperRegistrationState()
     }
 
     private func detectChipName(model: String) -> String {
@@ -166,27 +169,74 @@ class FanController: ObservableObject {
         isInstallingHelper = true
         lastError = nil
 
-        smcHelper.installHelperIfNeeded { [weak self] success, error in
-            Task { @MainActor in
-                self?.isInstallingHelper = false
-                if success {
-                    self?.canControlFans = true
-                    self?.needsHelperInstall = false
-                    self?.lastError = nil
-                    // 重新获取风扇信息
-                    await self?.updateFanInfo()
-                    await self?.startAutoControlIfAvailable()
-                } else {
-                    self?.lastError = .helperInstallFailed(error ?? "安装失败")
-                }
+        do {
+            try helperServiceManager.register()
+            refreshHelperRegistrationState()
+            isInstallingHelper = false
+            if helperRegistrationState == .enabled {
+                retryHelperConnection()
             }
+        } catch {
+            isInstallingHelper = false
+            refreshHelperRegistrationState()
+            lastError = .helperInstallFailed(error.localizedDescription)
         }
     }
 
-    func checkAndInstallHelper() {
-        if isM4 && !fanControl.isAvailable {
+    func performHelperRegistrationAction() {
+        refreshHelperRegistrationState()
+        switch helperRegistrationState {
+        case .notRegistered:
             installHelper()
+        case .requiresApproval:
+            helperServiceManager.openApprovalSettings()
+        case .notFound:
+            retryHelperConnection()
+        case .enabled:
+            break
         }
+    }
+
+    func refreshHelperRegistrationState() {
+        helperRegistrationState = helperServiceManager.state
+        if helperRegistrationState != .enabled {
+            canControlFans = false
+        }
+    }
+
+    func retryHelperConnection() {
+        refreshHelperRegistrationState()
+        guard helperRegistrationState == .enabled else { return }
+        smcHelper.disconnect()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.updateFanInfo()
+            await self.startAutoControlIfAvailable()
+        }
+    }
+
+    func uninstallHelper() async {
+        guard !isInstallingHelper else { return }
+        isInstallingHelper = true
+        lastError = nil
+
+        let legacyCleanupSucceeded = await smcHelper.removeLegacyHelper()
+        do {
+            try await helperServiceManager.unregister()
+            smcHelper.disconnect()
+            refreshHelperRegistrationState()
+            canControlFans = false
+            isAutoControlEnabled = false
+            autoControlTimer?.invalidate()
+            autoControlTimer = nil
+            if !legacyCleanupSucceeded {
+                lastError = .helperInstallFailed("新服务已卸载，但旧版服务清理失败")
+            }
+        } catch {
+            refreshHelperRegistrationState()
+            lastError = .helperInstallFailed(error.localizedDescription)
+        }
+        isInstallingHelper = false
     }
 
     // MARK: - Monitoring

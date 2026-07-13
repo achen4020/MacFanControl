@@ -4,10 +4,16 @@ import HelperIPC
 public final class HelperXPCService: NSObject, HelperToolProtocol {
     private let service: HelperService
     private let version: String
+    private let legacyRemover: LegacyHelperRemoving
 
-    public init(service: HelperService, version: String = "1.0.0") {
+    public init(
+        service: HelperService,
+        version: String = "1.0.0",
+        legacyRemover: LegacyHelperRemoving = LegacyHelperRemover()
+    ) {
         self.service = service
         self.version = version
+        self.legacyRemover = legacyRemover
     }
 
     public func getVersion(reply: @escaping (String) -> Void) {
@@ -51,7 +57,7 @@ public final class HelperXPCService: NSObject, HelperToolProtocol {
     }
 
     public func removeLegacyHelper(reply: @escaping (Bool, String?) -> Void) {
-        reply(false, "legacy_removal_unavailable")
+        send(legacyRemover.remove(), using: reply)
     }
 
     private func send(_ result: HelperOperationResult, using callback: @escaping (Bool, String?) -> Void) {

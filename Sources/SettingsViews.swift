@@ -259,7 +259,7 @@ struct AboutView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                if fanController.canControlFans {
+                if fanController.helperRegistrationState == .enabled {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
@@ -277,8 +277,16 @@ struct AboutView: View {
                     HStack {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.red)
-                        Text("风扇控制服务未安装")
+                        Text(fanController.helperRegistrationState.message)
                             .font(.caption)
+                    }
+
+                    if let actionTitle = fanController.helperRegistrationState.actionTitle {
+                        Button(actionTitle) {
+                            fanController.performHelperRegistrationAction()
+                        }
+                        .font(.caption)
+                        .disabled(fanController.isInstallingHelper)
                     }
                 }
             }
@@ -300,8 +308,11 @@ struct AboutView: View {
     }
 
     private func uninstallHelper() {
-        isUninstallingHelper = false
-        fanController.lastError = .helperInstallFailed("服务管理将在 SMAppService 接管后启用")
+        isUninstallingHelper = true
+        Task { @MainActor in
+            await fanController.uninstallHelper()
+            isUninstallingHelper = false
+        }
     }
 }
 

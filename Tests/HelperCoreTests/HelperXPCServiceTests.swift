@@ -66,17 +66,36 @@ final class HelperXPCServiceTests: XCTestCase {
         )
     }
 
-    func testVersionAndLegacyRemovalResponsesAreStable() {
+    func testVersionIsStable() {
         let xpcService = HelperXPCService(
             service: HelperService(hardware: ForwardingFakeHardware()),
             version: "2.3.4"
         )
 
         xpcService.getVersion { XCTAssertEqual($0, "2.3.4") }
+    }
+
+    func testLegacyRemovalForwardsAuthenticatedXPCRequest() {
+        let remover = ForwardingFakeLegacyRemover()
+        let xpcService = HelperXPCService(
+            service: HelperService(hardware: ForwardingFakeHardware()),
+            legacyRemover: remover
+        )
+
         xpcService.removeLegacyHelper { success, error in
-            XCTAssertFalse(success)
-            XCTAssertEqual(error, "legacy_removal_unavailable")
+            XCTAssertTrue(success)
+            XCTAssertNil(error)
         }
+        XCTAssertEqual(remover.callCount, 1)
+    }
+}
+
+private final class ForwardingFakeLegacyRemover: LegacyHelperRemoving {
+    var callCount = 0
+
+    func remove() -> HelperOperationResult {
+        callCount += 1
+        return HelperOperationResult(success: true, error: nil)
     }
 }
 

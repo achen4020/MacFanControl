@@ -92,7 +92,7 @@ struct MenuBarContentView: View {
             }
 
             // Helper 安装提示
-            if fanController.needsHelperInstall {
+            if fanController.isAppleSilicon && fanController.helperRegistrationState != .enabled {
                 HelperInstallView()
                     .environmentObject(fanController)
             }
@@ -182,10 +182,7 @@ struct MenuBarContentView: View {
         .frame(width: 320)
         .onAppear {
             fanController.startMonitoring()
-            // 自动检查并安装 helper
-            if fanController.needsHelperInstall {
-                fanController.checkAndInstallHelper()
-            }
+            fanController.refreshHelperRegistrationState()
         }
     }
 }
@@ -200,7 +197,7 @@ struct HelperInstallView: View {
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
-                Text("需要安装风扇控制服务")
+                Text(fanController.helperRegistrationState.message)
                     .font(.caption)
                     .fontWeight(.medium)
             }
@@ -213,9 +210,9 @@ struct HelperInstallView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-            } else {
-                Button("安装服务 (需要管理员密码)") {
-                    fanController.installHelper()
+            } else if let actionTitle = fanController.helperRegistrationState.actionTitle {
+                Button(actionTitle) {
+                    fanController.performHelperRegistrationAction()
                 }
                 .buttonStyle(.borderedProminent)
                 .font(.caption)
