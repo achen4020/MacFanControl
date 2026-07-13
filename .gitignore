@@ -19,6 +19,7 @@ smc_helper
 *.xcodeproj/
 *.xcworkspace/
 .idea/
+.worktrees/
 
 # Temporary files
 *.log
