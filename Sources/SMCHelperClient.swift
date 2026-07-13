@@ -57,12 +57,7 @@ final class SMCHelperClient: FanControlProvider, @unchecked Sendable {
             return []
         }
         guard error == nil, let data,
-              let decodedSnapshots = try? HelperPayloadCodec.decodeFans(data) else {
-            invalidateConnection(requestConnection)
-            return []
-        }
-        let snapshots = decodedSnapshots.filter(\.isValidForClient)
-        guard !snapshots.isEmpty else {
+              let snapshots = try? HelperPayloadCodec.decodeValidatedFans(data) else {
             invalidateConnection(requestConnection)
             return []
         }

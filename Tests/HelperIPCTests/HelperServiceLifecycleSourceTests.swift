@@ -24,6 +24,14 @@ final class HelperServiceLifecycleSourceTests: XCTestCase {
         XCTAssertFalse(client.contains("Helper 安装将在 SMAppService 接管后启用"))
     }
 
+    func testControllerSeparatesHelperReachabilityFromFanCapability() throws {
+        let controller = try readSource("Sources/FanController.swift")
+
+        XCTAssertTrue(controller.contains("@Published var isHelperReachable"))
+        XCTAssertTrue(controller.contains("isConnectionAvailable: isHelperReachable"))
+        XCTAssertTrue(controller.contains("canControlFans = isHelperReachable && !fans.isEmpty"))
+    }
+
     private func readSource(_ path: String) throws -> String {
         let fileURL = repositoryRoot.appendingPathComponent(path)
         return try String(contentsOf: fileURL, encoding: .utf8)

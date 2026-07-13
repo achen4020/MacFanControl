@@ -58,6 +58,38 @@ final class HelperModelsTests: XCTestCase {
         XCTAssertEqual(try HelperPayloadCodec.decodeFans(encoded), snapshots)
     }
 
+    func testValidatedFanPayloadAcceptsEmptySnapshotList() throws {
+        let payload = try HelperPayloadCodec.encodeFans([])
+        let decoded: [HelperFanSnapshot] = try HelperPayloadCodec.decodeValidatedFans(payload)
+
+        XCTAssertEqual(decoded, [])
+    }
+
+    func testValidatedFanPayloadRejectsEntireMixedPayload() throws {
+        let snapshots = [
+            HelperFanSnapshot(
+                index: 0,
+                currentRPM: 2_000,
+                minimumRPM: 1_000,
+                maximumRPM: 4_000,
+                targetRPM: 2_200,
+                mode: 1
+            ),
+            HelperFanSnapshot(
+                index: -1,
+                currentRPM: 2_000,
+                minimumRPM: 1_000,
+                maximumRPM: 4_000,
+                targetRPM: 2_200,
+                mode: 1
+            )
+        ]
+
+        XCTAssertThrowsError(
+            try HelperPayloadCodec.decodeValidatedFans(HelperPayloadCodec.encodeFans(snapshots))
+        )
+    }
+
     func testTemperatureSnapshotsRoundTripThroughCodec() throws {
         let snapshots = [
             HelperTemperatureSnapshot(key: "TC0P", name: "CPU Proximity", value: 52.5),

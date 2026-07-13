@@ -38,6 +38,7 @@ class FanController: ObservableObject {
     @Published var sensorCount: Int = 0
     @Published var isInstallingHelper = false
     @Published var helperRegistrationState: HelperRegistrationState = .notFound
+    @Published var isHelperReachable = false
 
     @Published var profiles: [FanProfile] = [.silent, .balanced, .performance]
 
@@ -120,7 +121,8 @@ class FanController: ObservableObject {
         platformInfo = isAppleSilicon ? "Apple Silicon \(chipName) (\(modelString))" : "Intel (\(brand))"
 
         // 所有 Apple Silicon Mac 都可以通过 SMC Helper daemon 控制风扇
-        canControlFans = fanControl.isAvailable
+        isHelperReachable = fanControl.isAvailable
+        canControlFans = false
 
         refreshHelperRegistrationState()
     }
@@ -167,7 +169,7 @@ class FanController: ObservableObject {
     var helperServicePresentation: HelperServicePresentation {
         HelperServicePresentation(
             registrationState: helperRegistrationState,
-            isConnectionAvailable: canControlFans
+            isConnectionAvailable: isHelperReachable
         )
     }
 
@@ -212,6 +214,7 @@ class FanController: ObservableObject {
     func refreshHelperRegistrationState() {
         helperRegistrationState = helperServiceManager.state
         if helperRegistrationState != .enabled {
+            isHelperReachable = false
             canControlFans = false
         }
     }
@@ -226,10 +229,13 @@ class FanController: ObservableObject {
             let connected = await HelperConnectionRetryCoordinator.retry(
                 for: state,
                 disconnect: { client.disconnect() },
-                request: { !(await client.getFanData()).isEmpty }
+                request: {
+                    _ = await client.getFanData()
+                    return client.isAvailable
+                }
             )
             self.refreshHelperRegistrationState()
-            self.canControlFans = connected && self.helperRegistrationState == .enabled
+            self.isHelperReachable = connected && self.helperRegistrationState == .enabled
             if connected {
                 self.lastError = nil
                 await self.updateFanInfo()
@@ -309,6 +315,7 @@ class FanController: ObservableObject {
         var newFans: [FanInfo] = []
         let fanData = await fanControl.getFanData()
         let controlAvailable = fanControl.isAvailable
+        isHelperReachable = controlAvailable
 
         if !fanData.isEmpty {
             newFans = fanData.map { data in
@@ -322,8 +329,8 @@ class FanController: ObservableObject {
                     isManualMode: data.mode == 1
                 )
             }
-            if canControlFans != controlAvailable { canControlFans = controlAvailable }
             if !fansEqual(fans, newFans) { fans = newFans }
+            canControlFans = isHelperReachable && !fans.isEmpty
             await startAutoControlIfAvailable()
             return
         }
@@ -333,7 +340,7 @@ class FanController: ObservableObject {
             do {
                 try smc.open()
             } catch {
-                if canControlFans != controlAvailable { canControlFans = controlAvailable }
+                canControlFans = false
                 if !fans.isEmpty { fans = [] }
                 return
             }
@@ -358,8 +365,10 @@ class FanController: ObservableObject {
             }
         }
 
-        if canControlFans != controlAvailable { canControlFans = controlAvailable }
         if !fansEqual(fans, newFans) { fans = newFans }
+        canControlFans = appleSilicon
+            ? isHelperReachable && !fans.isEmpty
+            : !fans.isEmpty
         await startAutoControlIfAvailable()
     }
 

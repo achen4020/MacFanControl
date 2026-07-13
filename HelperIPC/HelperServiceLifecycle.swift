@@ -40,7 +40,7 @@ public struct HelperServicePresentation: Equatable, Sendable {
             isSuccess = false
         case (.notFound, _):
             message = registrationState.message
-            action = .retryConnection
+            action = nil
             isSuccess = false
         }
     }

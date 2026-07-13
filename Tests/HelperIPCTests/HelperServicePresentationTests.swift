@@ -27,7 +27,8 @@ final class HelperServicePresentationTests: XCTestCase {
     func testRegistrationStatesExposeTheirSpecificActions() {
         XCTAssertEqual(presentation(.notRegistered).action, .register)
         XCTAssertEqual(presentation(.requiresApproval).action, .openApprovalSettings)
-        XCTAssertEqual(presentation(.notFound).action, .retryConnection)
+        XCTAssertNil(presentation(.notFound).action)
+        XCTAssertEqual(presentation(.notFound).message, "应用不完整，请重新下载或安装")
     }
 
     private func presentation(_ state: HelperRegistrationState) -> HelperServicePresentation {

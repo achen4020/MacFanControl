@@ -2,7 +2,7 @@ import XCTest
 @testable import HelperIPC
 
 final class HelperConnectionRetryCoordinatorTests: XCTestCase {
-    func testNotFoundDisconnectsAndAttemptsConnection() async {
+    func testNotFoundDoesNotAttemptConnection() async {
         let recorder = RetryRecorder()
 
         let connected = await HelperConnectionRetryCoordinator.retry(
@@ -16,7 +16,7 @@ final class HelperConnectionRetryCoordinatorTests: XCTestCase {
 
         XCTAssertFalse(connected)
         let snapshot = await recorder.snapshot()
-        XCTAssertEqual(snapshot, .init(disconnects: 1, requests: 1))
+        XCTAssertEqual(snapshot, .init(disconnects: 0, requests: 0))
     }
 
     func testEnabledDisconnectsAndAttemptsConnection() async {

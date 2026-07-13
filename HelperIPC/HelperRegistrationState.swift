@@ -11,7 +11,7 @@ public enum HelperRegistrationState: Equatable, Sendable {
         case .requiresApproval:
             return "打开系统设置"
         case .notFound:
-            return "重试连接"
+            return nil
         case .enabled:
             return nil
         }
@@ -24,7 +24,7 @@ public enum HelperRegistrationState: Equatable, Sendable {
         case .requiresApproval:
             return "需要在系统设置中批准风扇控制服务"
         case .notFound:
-            return "未找到风扇控制服务，请确认应用完整后重试"
+            return "应用不完整，请重新下载或安装"
         case .enabled:
             return "风扇控制服务已启用"
         }

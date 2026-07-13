@@ -5,7 +5,7 @@ public enum HelperConnectionRetryCoordinator {
         disconnect: () async -> Void,
         request: () async -> Bool
     ) async -> Bool {
-        guard state == .notFound || state == .enabled else {
+        guard state == .enabled else {
             return false
         }
 

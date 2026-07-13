@@ -54,6 +54,14 @@ public enum HelperPayloadCodec {
         try JSONDecoder().decode([HelperFanSnapshot].self, from: data)
     }
 
+    public static func decodeValidatedFans(_ data: Data) throws -> [HelperFanSnapshot] {
+        let snapshots = try decodeFans(data)
+        guard snapshots.allSatisfy(\.isValidForClient) else {
+            throw HelperPayloadValidationError.invalidFanSnapshot
+        }
+        return snapshots
+    }
+
     public static func encodeTemperatures(_ snapshots: [HelperTemperatureSnapshot]) throws -> Data {
         try JSONEncoder().encode(snapshots)
     }
@@ -61,4 +69,8 @@ public enum HelperPayloadCodec {
     public static func decodeTemperatures(_ data: Data) throws -> [HelperTemperatureSnapshot] {
         try JSONDecoder().decode([HelperTemperatureSnapshot].self, from: data)
     }
+}
+
+public enum HelperPayloadValidationError: Error, Equatable, Sendable {
+    case invalidFanSnapshot
 }
