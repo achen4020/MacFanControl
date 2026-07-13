@@ -109,7 +109,9 @@ EOF
 echo -n "APPL????" > "${APP_BUNDLE}/Contents/PkgInfo"
 
 echo "[4/5] 对应用程序包进行临时签名..."
-codesign --force --deep --sign - "${APP_BUNDLE}"
+codesign --force --deep --sign - \
+    --requirements '=designated => identifier "com.macfancontrol.app"' \
+    "${APP_BUNDLE}"
 
 if [ $? -ne 0 ]; then
     echo "应用程序签名失败"
