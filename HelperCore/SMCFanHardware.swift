@@ -8,7 +8,7 @@ public final class SMCFanHardware: FanHardwareControlling {
         self.manager = manager
     }
 
-    public var fanCount: Int {
+    public func fanCount() -> Int {
         try? manager.open()
         return manager.getFanCount()
     }

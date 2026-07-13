@@ -35,6 +35,7 @@ final class HelperServiceTests: XCTestCase {
 
     func testResetAllAttemptsEveryFanAfterFailure() {
         let hardware = FakeFanHardware()
+        hardware.reportedFanCount = 3
         hardware.resetFailureIndices = [1]
         let service = HelperService(hardware: hardware)
 
@@ -42,7 +43,7 @@ final class HelperServiceTests: XCTestCase {
 
         XCTAssertFalse(result.success)
         XCTAssertNotNil(result.error)
-        XCTAssertEqual(hardware.resetWrites, [0, 1])
+        XCTAssertEqual(hardware.resetWrites, [0, 1, 2])
     }
 
     func testFanSnapshotsContainAllFanFields() {
@@ -87,7 +88,7 @@ private enum TestError: Error {
 }
 
 private final class FakeFanHardware: FanHardwareControlling {
-    let fanCount = 2
+    var reportedFanCount = 2
     let currentRPMValues = [1_500, 2_500]
     let minimumRPMValues = [1_000, 2_000]
     let maximumRPMValues = [4_000, 5_000]
@@ -101,6 +102,7 @@ private final class FakeFanHardware: FanHardwareControlling {
     var resetFailureIndices: Set<Int> = []
     var speedWriteError: Error?
 
+    func fanCount() -> Int { reportedFanCount }
     func currentRPM(index: Int) -> Int? { currentRPMValues[safe: index] }
     func minimumRPM(index: Int) -> Int? { minimumRPMValues[safe: index] }
     func maximumRPM(index: Int) -> Int? { maximumRPMValues[safe: index] }

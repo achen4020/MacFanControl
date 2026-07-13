@@ -2,7 +2,7 @@ import Foundation
 import HelperIPC
 
 public protocol FanHardwareControlling: AnyObject {
-    var fanCount: Int { get }
+    func fanCount() -> Int
     func currentRPM(index: Int) -> Int?
     func minimumRPM(index: Int) -> Int?
     func maximumRPM(index: Int) -> Int?
@@ -33,7 +33,7 @@ public final class HelperService {
 
     public func setFanSpeed(index: Int, rpm: Int) -> HelperOperationResult {
         locked {
-            let ranges = (0..<hardware.fanCount).map { fanIndex in
+            let ranges = (0..<hardware.fanCount()).map { fanIndex in
                 let minimum = hardware.minimumRPM(index: fanIndex) ?? 0
                 let maximum = hardware.maximumRPM(index: fanIndex) ?? 0
                 return min(minimum, maximum)...max(minimum, maximum)
@@ -57,7 +57,7 @@ public final class HelperService {
 
     public func resetFanToAuto(index: Int) -> HelperOperationResult {
         locked {
-            guard (0..<hardware.fanCount).contains(index) else {
+            guard (0..<hardware.fanCount()).contains(index) else {
                 return .failure("Invalid fan index: \(index)")
             }
             do {
@@ -72,7 +72,7 @@ public final class HelperService {
     public func resetAllFansToAuto() -> HelperOperationResult {
         locked {
             var errors: [String] = []
-            for index in 0..<hardware.fanCount {
+            for index in 0..<hardware.fanCount() {
                 do {
                     try hardware.resetFanToAuto(index: index)
                 } catch {
@@ -85,7 +85,7 @@ public final class HelperService {
 
     public func fanSnapshots() -> [HelperFanSnapshot] {
         locked {
-            (0..<hardware.fanCount).map { index in
+            (0..<hardware.fanCount()).map { index in
                 HelperFanSnapshot(
                     index: index,
                     currentRPM: hardware.currentRPM(index: index) ?? 0,
