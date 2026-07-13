@@ -158,13 +158,24 @@ public struct TemperatureInfo: Identifiable, Equatable {
         return nil
     }
 
-    /// Natural ordering for the display whitelist. SSD follows CPU channels.
+    /// Sensor category ordering. SSD follows every CPU channel.
+    public var displayCategoryOrder: Int? {
+        if cpuChannelNumber != nil {
+            return 0
+        }
+        if name == "NAND CH0 temp" {
+            return 1
+        }
+        return nil
+    }
+
+    /// Natural ordering inside a display category.
     public var displaySortOrder: Int? {
         if let channel = cpuChannelNumber {
             return channel
         }
         if name == "NAND CH0 temp" {
-            return 10_000
+            return 0
         }
         return nil
     }

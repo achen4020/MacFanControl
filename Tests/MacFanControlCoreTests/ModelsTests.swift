@@ -107,14 +107,19 @@ final class ModelsTests: XCTestCase {
     }
 
     func testDisplaySortOrder_usesNaturalChannelOrderAndSSDLast() {
-        let names = ["NAND CH0 temp", "PMU tdie10", "PMU tdie2"]
+        let names = ["NAND CH0 temp", "PMU tdie10001", "PMU tdie10", "PMU tdie2"]
         let sorted = names
             .map { TemperatureInfo(id: $0, name: $0, value: 40) }
-            .sorted { $0.displaySortOrder! < $1.displaySortOrder! }
+            .sorted {
+                if $0.displayCategoryOrder != $1.displayCategoryOrder {
+                    return $0.displayCategoryOrder! < $1.displayCategoryOrder!
+                }
+                return $0.displaySortOrder! < $1.displaySortOrder!
+            }
 
         XCTAssertEqual(
             sorted.compactMap(\.displayName),
-            ["CPU 温度通道 2", "CPU 温度通道 10", "SSD"]
+            ["CPU 温度通道 2", "CPU 温度通道 10", "CPU 温度通道 10001", "SSD"]
         )
     }
 

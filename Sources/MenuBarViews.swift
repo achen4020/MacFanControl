@@ -330,7 +330,12 @@ struct TemperatureSection: View {
         fanController.temperatures
             .filter(\.isDisplayable)
             .sorted {
-                ($0.displaySortOrder ?? Int.max) < ($1.displaySortOrder ?? Int.max)
+                let leftCategory = $0.displayCategoryOrder ?? Int.max
+                let rightCategory = $1.displayCategoryOrder ?? Int.max
+                if leftCategory != rightCategory {
+                    return leftCategory < rightCategory
+                }
+                return ($0.displaySortOrder ?? Int.max) < ($1.displaySortOrder ?? Int.max)
             }
     }
 
