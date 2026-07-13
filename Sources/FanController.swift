@@ -243,6 +243,7 @@ class FanController: ObservableObject {
                         if self.canControlFans != controlAvailable { self.canControlFans = controlAvailable }
                         if !self.fansEqual(self.fans, newFans) { self.fans = newFans }
                         self.isUpdatingFanInfo = false
+                        self.startAutoControlIfAvailable()
                     }
                     return
                 }
@@ -286,6 +287,7 @@ class FanController: ObservableObject {
                 if self.canControlFans != controlAvailable { self.canControlFans = controlAvailable }
                 if !self.fansEqual(self.fans, newFans) { self.fans = newFans }
                 self.isUpdatingFanInfo = false
+                self.startAutoControlIfAvailable()
             }
         }
     }
@@ -586,6 +588,7 @@ class FanController: ObservableObject {
             profiles[i].isActive = profiles[i].id == profile.id
         }
         activeProfile = profiles.first { $0.id == profile.id } ?? profile
+        lastError = nil
         saveSettings()
 
         guard canControlFans else {
@@ -593,18 +596,19 @@ class FanController: ObservableObject {
             return
         }
 
-        lastError = nil
-        startAutoControlIfAvailable()
+        startAutoControlIfAvailable(restartTimer: true)
     }
 
-    private func startAutoControlIfAvailable() {
+    private func startAutoControlIfAvailable(restartTimer: Bool = false) {
         guard isAutoControlEnabled, activeProfile != nil, canControlFans else { return }
 
-        autoControlTimer?.invalidate()
-        autoControlTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, !self.isApplyingAutoControl else { return }
-                self.applyAutoControl()
+        if autoControlTimer == nil || restartTimer {
+            autoControlTimer?.invalidate()
+            autoControlTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, !self.isApplyingAutoControl else { return }
+                    self.applyAutoControl()
+                }
             }
         }
         applyAutoControl()
@@ -651,7 +655,7 @@ class FanController: ObservableObject {
 
         restore(settings)
         saveSettings()
-        startAutoControlIfAvailable()
+        startAutoControlIfAvailable(restartTimer: true)
 
         if !canControlFans {
             lastError = .fanControlUnavailable

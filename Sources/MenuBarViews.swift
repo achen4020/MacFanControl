@@ -575,7 +575,7 @@ struct ProfileSection: View {
             HStack(spacing: 6) {
                 // 系统自动按钮
                 Button {
-                    fanController.resetAllFansToAuto()
+                    fanController.disableAutoControl()
                 } label: {
                     VStack(spacing: 4) {
                         Image(systemName: "arrow.counterclockwise")
