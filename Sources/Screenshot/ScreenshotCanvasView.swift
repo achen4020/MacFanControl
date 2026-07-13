@@ -16,13 +16,20 @@ struct ScreenshotCanvasView: NSViewRepresentable {
 }
 
 final class ScreenshotCanvasNSView: NSView {
+    private enum ResizeHandle: CaseIterable {
+        case topLeft, top, topRight, left, right, bottomLeft, bottom, bottomRight
+    }
+
     var viewModel: ScreenshotEditorViewModel
 
     private var dragStart: CGPoint?
     private var dragCurrent: CGPoint?
     private var penPoints: [CGPoint] = []
     private var movingOriginal: ScreenshotAnnotation?
+    private var resizingOriginal: ScreenshotAnnotation?
+    private var activeResizeHandle: ResizeHandle?
     private var previewAnnotation: ScreenshotAnnotation?
+    private var previewCropRect: CGRect?
 
     init(viewModel: ScreenshotEditorViewModel) {
         self.viewModel = viewModel
@@ -54,6 +61,13 @@ final class ScreenshotCanvasNSView: NSView {
         if let previewAnnotation {
             draw(previewAnnotation)
         }
+        if let previewCropRect {
+            NSColor.white.setStroke()
+            let path = NSBezierPath(rect: viewRect(from: previewCropRect))
+            path.lineWidth = 2
+            path.setLineDash([6, 4], count: 2, phase: 0)
+            path.stroke()
+        }
         drawSelection()
     }
 
@@ -64,9 +78,20 @@ final class ScreenshotCanvasNSView: NSView {
         dragStart = point
         dragCurrent = point
         previewAnnotation = nil
+        previewCropRect = nil
         penPoints = [point]
 
         if viewModel.tool == .select {
+            let viewPoint = convert(event.locationInWindow, from: nil)
+            if let id = viewModel.selectedAnnotationID,
+               let selected = viewModel.annotation(id: id),
+               let handle = resizeHandle(at: viewPoint, annotation: selected) {
+                resizingOriginal = selected
+                activeResizeHandle = handle
+                movingOriginal = nil
+                needsDisplay = true
+                return
+            }
             let hit = annotation(at: point)
             viewModel.selectedAnnotationID = hit?.id
             movingOriginal = hit
@@ -84,7 +109,16 @@ final class ScreenshotCanvasNSView: NSView {
 
         switch viewModel.tool {
         case .select:
-            if let movingOriginal {
+            if let resizingOriginal, let activeResizeHandle {
+                let bounds = resizedBounds(
+                    resizingOriginal.bounds,
+                    handle: activeResizeHandle,
+                    point: point
+                )
+                if bounds.width >= 2, bounds.height >= 2 {
+                    previewAnnotation = resizingOriginal.resized(to: bounds)
+                }
+            } else if let movingOriginal {
                 previewAnnotation = movingOriginal.translatedBy(
                     x: point.x - dragStart.x,
                     y: point.y - dragStart.y
@@ -103,6 +137,15 @@ final class ScreenshotCanvasNSView: NSView {
                 penPoints.append(point)
             }
             previewAnnotation = .pen(id: UUID(), points: penPoints, style: viewModel.style)
+        case .crop:
+            previewCropRect = normalizedRect(dragStart, point)
+                .intersection(viewModel.state.cropRect)
+        case .mosaic:
+            previewAnnotation = .mosaic(
+                id: UUID(),
+                rect: normalizedRect(dragStart, point),
+                blockSize: 12
+            )
         default:
             break
         }
@@ -123,6 +166,15 @@ final class ScreenshotCanvasNSView: NSView {
             viewModel.add(.arrow(id: UUID(), start: dragStart, end: end, style: viewModel.style))
         case .pen where penPoints.count >= 2:
             viewModel.add(.pen(id: UUID(), points: penPoints, style: viewModel.style))
+        case .crop:
+            let crop = rect.intersection(viewModel.state.cropRect).integral
+            if crop.width >= 4, crop.height >= 4 {
+                viewModel.apply(viewModel.state.withCropRect(crop))
+                viewModel.selectedAnnotationID = nil
+                viewModel.tool = .select
+            }
+        case .mosaic where rect.width >= 2 && rect.height >= 2:
+            viewModel.add(.mosaic(id: UUID(), rect: rect, blockSize: 12))
         default:
             break
         }
@@ -131,7 +183,10 @@ final class ScreenshotCanvasNSView: NSView {
         dragCurrent = nil
         penPoints.removeAll(keepingCapacity: true)
         movingOriginal = nil
+        resizingOriginal = nil
+        activeResizeHandle = nil
         previewAnnotation = nil
+        previewCropRect = nil
         needsDisplay = true
     }
 
@@ -235,7 +290,9 @@ final class ScreenshotCanvasNSView: NSView {
                 ]
             )
         case .mosaic:
-            break
+            if case let .mosaic(_, rect, blockSize) = annotation {
+                drawMosaic(rect: rect, blockSize: blockSize)
+            }
         }
     }
 
@@ -293,14 +350,89 @@ final class ScreenshotCanvasNSView: NSView {
         path.stroke()
 
         NSColor.white.setFill()
-        for point in [
-            CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.midX, y: rect.minY),
-            CGPoint(x: rect.maxX, y: rect.minY), CGPoint(x: rect.minX, y: rect.midY),
-            CGPoint(x: rect.maxX, y: rect.midY), CGPoint(x: rect.minX, y: rect.maxY),
-            CGPoint(x: rect.midX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY)
-        ] {
+        for point in handlePoints(for: rect).map(\.point) {
             NSBezierPath(ovalIn: CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)).fill()
         }
+    }
+
+    private func resizeHandle(
+        at point: CGPoint,
+        annotation: ScreenshotAnnotation
+    ) -> ResizeHandle? {
+        let rect = viewRect(from: annotation.bounds).insetBy(dx: -4, dy: -4)
+        return handlePoints(for: rect).first {
+            CGRect(x: $0.point.x - 7, y: $0.point.y - 7, width: 14, height: 14).contains(point)
+        }?.handle
+    }
+
+    private func handlePoints(for rect: CGRect) -> [(handle: ResizeHandle, point: CGPoint)] {
+        [
+            (.topLeft, CGPoint(x: rect.minX, y: rect.minY)),
+            (.top, CGPoint(x: rect.midX, y: rect.minY)),
+            (.topRight, CGPoint(x: rect.maxX, y: rect.minY)),
+            (.left, CGPoint(x: rect.minX, y: rect.midY)),
+            (.right, CGPoint(x: rect.maxX, y: rect.midY)),
+            (.bottomLeft, CGPoint(x: rect.minX, y: rect.maxY)),
+            (.bottom, CGPoint(x: rect.midX, y: rect.maxY)),
+            (.bottomRight, CGPoint(x: rect.maxX, y: rect.maxY))
+        ]
+    }
+
+    private func resizedBounds(
+        _ original: CGRect,
+        handle: ResizeHandle,
+        point: CGPoint
+    ) -> CGRect {
+        var minX = original.minX
+        var maxX = original.maxX
+        var minY = original.minY
+        var maxY = original.maxY
+
+        switch handle {
+        case .topLeft: minX = point.x; minY = point.y
+        case .top: minY = point.y
+        case .topRight: maxX = point.x; minY = point.y
+        case .left: minX = point.x
+        case .right: maxX = point.x
+        case .bottomLeft: minX = point.x; maxY = point.y
+        case .bottom: maxY = point.y
+        case .bottomRight: maxX = point.x; maxY = point.y
+        }
+        return CGRect(
+            x: min(minX, maxX),
+            y: min(minY, maxY),
+            width: abs(maxX - minX),
+            height: abs(maxY - minY)
+        ).intersection(viewModel.state.cropRect)
+    }
+
+    private func drawMosaic(rect: CGRect, blockSize: CGFloat) {
+        let area = rect.integral.intersection(
+            CGRect(x: 0, y: 0, width: viewModel.image.width, height: viewModel.image.height)
+        )
+        guard !area.isNull,
+              let source = viewModel.image.cropping(to: area) else { return }
+
+        let width = max(1, Int(ceil(area.width / max(2, blockSize))))
+        let height = max(1, Int(ceil(area.height / max(2, blockSize))))
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+        context.interpolationQuality = .medium
+        context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let pixelated = context.makeImage() else { return }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current?.imageInterpolation = .none
+        NSImage(cgImage: pixelated, size: CGSize(width: width, height: height))
+            .draw(in: viewRect(from: area))
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     private func beginTextEntry(at point: CGPoint) {

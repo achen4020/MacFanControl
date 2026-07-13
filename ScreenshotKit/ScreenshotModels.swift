@@ -179,6 +179,41 @@ public enum ScreenshotAnnotation: Equatable, Sendable {
             return .mosaic(id: id, rect: rect.offsetBy(dx: x, dy: y), blockSize: blockSize)
         }
     }
+
+    public func resized(to newBounds: CGRect) -> ScreenshotAnnotation {
+        let target = newBounds.standardized
+        let oldBounds = bounds
+
+        func mapped(_ point: CGPoint) -> CGPoint {
+            CGPoint(
+                x: oldBounds.width > 0
+                    ? target.minX + (point.x - oldBounds.minX) * target.width / oldBounds.width
+                    : target.midX,
+                y: oldBounds.height > 0
+                    ? target.minY + (point.y - oldBounds.minY) * target.height / oldBounds.height
+                    : target.midY
+            )
+        }
+
+        switch self {
+        case let .rectangle(id, _, style):
+            return .rectangle(id: id, rect: target, style: style)
+        case let .arrow(id, start, end, style):
+            return .arrow(id: id, start: mapped(start), end: mapped(end), style: style)
+        case let .pen(id, points, style):
+            return .pen(id: id, points: points.map(mapped), style: style)
+        case let .text(id, _, value, fontSize, style):
+            return .text(
+                id: id,
+                rect: target,
+                value: value,
+                fontSize: fontSize,
+                style: style
+            )
+        case let .mosaic(id, _, blockSize):
+            return .mosaic(id: id, rect: target, blockSize: blockSize)
+        }
+    }
 }
 
 public struct ScreenshotDocumentState: Equatable, Sendable {

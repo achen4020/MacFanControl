@@ -91,4 +91,22 @@ final class ScreenshotHistoryTests: XCTestCase {
             )
         )
     }
+
+    func testRectangleCanBeResizedToNewBounds() {
+        let id = UUID()
+        let annotation = ScreenshotAnnotation.rectangle(
+            id: id,
+            rect: CGRect(x: 10, y: 10, width: 20, height: 20),
+            style: .default
+        )
+
+        XCTAssertEqual(
+            annotation.resized(to: CGRect(x: 5, y: 8, width: 60, height: 40)),
+            .rectangle(
+                id: id,
+                rect: CGRect(x: 5, y: 8, width: 60, height: 40),
+                style: .default
+            )
+        )
+    }
 }
