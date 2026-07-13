@@ -20,6 +20,7 @@ smc_helper
 *.xcworkspace/
 .idea/
 .worktrees/
+.superpowers/
 
 # Temporary files
 *.log
