@@ -48,7 +48,7 @@ MacFanControl 是一款不占用 Dock 的 SwiftUI 菜单栏应用。它把温度
 - macOS 13.0 Ventura 或更高版本。
 - Apple Silicon 或 Intel Mac；实际温度传感器和可控风扇数量取决于具体机型与固件。
 - 区域截图需要开启“隐私与安全性 > 屏幕与系统音频录制”中的屏幕录制权限。
-- 风扇调速需要安装应用内置的特权 Helper，并输入管理员密码。
+- 风扇调速需要启用应用内置的特权 Helper；macOS 可能要求在系统设置中批准后台服务。
 - 从源码构建需要 Xcode 15 或更高版本、Swift 5.9 或更高版本。
 
 ## 安装
@@ -57,15 +57,10 @@ MacFanControl 是一款不占用 Dock 的 SwiftUI 菜单栏应用。它把温度
 
 1. 从 [GitHub Releases](https://github.com/achen4020/MacFanControl/releases/latest) 下载 `MacFanControl_v1.1.0.zip`。
 2. 解压后将 `MacFanControl.app` 拖入 `/Applications`。
-3. 首次启动后，根据菜单栏提示安装风扇控制 Helper。
+3. 首次启动后，根据菜单栏提示启用风扇控制 Helper，并按需在系统设置中批准。
 4. 首次使用区域截图时，按提示授予屏幕录制权限并重新启动应用。
 
-当前发布包使用稳定的本地临时签名，但没有 Apple Developer ID 公证。如果 macOS 阻止首次启动，可在“系统设置 > 隐私与安全性”中选择仍要打开；仍无法运行时可执行：
-
-```bash
-xattr -dr com.apple.quarantine /Applications/MacFanControl.app
-open /Applications/MacFanControl.app
-```
+下载包采用的签名与验证状态以对应版本的 Release 说明为准。项目源码已提供 Developer ID 正式签名构建流程。
 
 ### 从源码构建应用包
 
@@ -75,7 +70,26 @@ cd MacFanControl
 ./build-app.sh
 ```
 
-构建完成后，应用位于项目根目录的 `MacFanControl.app`。脚本会生成 Release 二进制、编译并内置 `smc_helper`、创建 plist，并使用稳定的指定要求进行临时签名。
+构建完成后，应用位于项目根目录的 `MacFanControl.app`。`build-app.sh` 仅用于本地开发与临时签名验证，不是可对外分发的 Developer ID 构建流程；正式分发请使用下一节的脚本。
+
+### Developer ID 正式签名构建
+
+正式分发构建需要钥匙串中已有有效的 `Developer ID Application` 身份，并显式提供签名身份和十位 Team ID：
+
+```bash
+DEVELOPER_ID_APPLICATION='Developer ID Application: Your Name (ABCDE12345)' \
+DEVELOPMENT_TEAM='ABCDE12345' \
+./scripts/build-developer-id-release.sh
+```
+
+脚本分别在独立目录构建 `arm64` 和 `x86_64` 的主应用与 Swift Helper，合并为 Universal Binary，再按 Helper、主应用的顺序启用 Hardened Runtime 和安全时间戳进行签名。正式脚本不会使用临时签名或 `codesign --deep`。
+
+不访问证书、不联网的发布脚本合约检查可单独运行：
+
+```bash
+bash -n scripts/build-developer-id-release.sh
+bash Tests/DeveloperIDReleaseTests.sh
+```
 
 ### 开发模式
 
@@ -95,14 +109,7 @@ swift run MacFanControl
 
 ### 风扇控制 Helper
 
-温度和系统状态监控不要求 root 权限；修改风扇模式和目标转速需要特权 Helper。应用会将 Helper 安装到 `/Library/PrivilegedHelperTools/com.macfancontrol.smchelper`，并通过 Unix Socket `/var/run/com.macfancontrol.smchelper.sock` 通信。
-
-也可以手动安装或卸载：
-
-```bash
-sudo ./install-helper.sh
-sudo ./uninstall-helper.sh
-```
+温度和系统状态监控不要求 root 权限；修改风扇模式和目标转速需要包内的特权 Helper。应用通过 macOS `SMAppService` 注册 Helper，并使用经过双方代码签名校验的 XPC 通信。首次启用时，系统可能要求在“系统设置 > 通用 > 登录项与扩展”中批准后台服务。
 
 ## 架构
 
@@ -114,12 +121,12 @@ MacFanControl.app (SwiftUI / AppKit 菜单栏应用)
 ├── TemperatureReader   HID 温度读取
 ├── SystemMonitor       CPU、内存、启动磁盘和网络监控
 ├── Screenshot          全局快捷键、选区遮罩和编辑器窗口
-└── SMCHelperClient ── Unix Socket ── MacFanControlHelper (root)
-                                           │
-                                           └── IOKit / AppleSMC
+└── SMCHelperClient ── Signed XPC ── MacFanControlHelper (root)
+                                         │
+                                         └── IOKit / AppleSMC
 ```
 
-主应用依赖 `MacFanControlCore`、`ScreenshotKit` 和 `SMCKit`；特权 Helper 仅依赖共享的 `SMCKit`。截图模块与 `FanController` 解耦，只在用户触发时读取屏幕和创建编辑窗口，不影响持续运行的风扇监控。
+主应用依赖 `MacFanControlCore`、`ScreenshotKit`、`HelperIPC` 和 `SMCKit`；特权 Helper 通过共享的 `HelperIPC` 暴露受限接口，并使用 `SMCKit` 访问硬件。截图模块与 `FanController` 解耦，只在用户触发时读取屏幕和创建编辑窗口，不影响持续运行的风扇监控。
 
 ## 项目结构
 
@@ -128,6 +135,8 @@ MacFanControl/
 ├── Package.swift
 ├── Core/                         # 可测试的监控、风扇和配置模型
 ├── ScreenshotKit/                # 截图核心模型、几何、历史与渲染
+├── HelperIPC/                    # XPC 协议、数据模型与签名要求
+├── HelperCore/                   # 可测试的特权 Helper 服务逻辑
 ├── Shared/                       # 应用和 Helper 共享的 SMC 访问层
 ├── Sources/
 │   ├── MacFanControlApp.swift    # 应用入口和窗口控制器
@@ -137,11 +146,12 @@ MacFanControl/
 │   ├── SettingsViews.swift       # 通用、配置、截图和关于设置
 │   ├── SystemMonitor.swift       # CPU、内存、磁盘和网络监控
 │   └── Screenshot/               # 快捷键、选区和截图编辑器
-├── Helper/                       # Swift Helper 目标
-├── smc_helper.c                  # 发布包内置的 Helper 实现
+├── Helper/                       # Swift XPC LaunchDaemon 入口与 plist
+├── scripts/                      # Developer ID 构建脚本
 └── Tests/
     ├── MacFanControlCoreTests/
     ├── ScreenshotKitTests/
+    ├── DeveloperIDReleaseTests.sh
     ├── BuildAppSigningTests.sh
     └── ReleaseMetadataTests.sh
 ```
@@ -153,6 +163,7 @@ swift test
 swift build -c release
 bash Tests/BuildAppSigningTests.sh MacFanControl.app
 bash Tests/ReleaseMetadataTests.sh
+bash Tests/DeveloperIDReleaseTests.sh
 ```
 
 当前测试覆盖风扇曲线与配置持久化、传感器名称、CPU/内存/磁盘/网络计算、截图坐标与 Retina 映射、快捷键存储、会话去重、编辑历史、裁剪、马赛克、PNG 编码、剪贴板限制和编辑器窗口尺寸。
@@ -172,13 +183,12 @@ open /Applications/MacFanControl.app
 
 ```bash
 sudo log show --predicate 'subsystem == "com.macfancontrol.helper"' --last 5m
-sudo launchctl list | grep macfancontrol
-ls -l /var/run/com.macfancontrol.smchelper.sock
+sudo launchctl print system/com.macfancontrol.helper
 ```
 
 ### 无法控制风扇
 
-- 确认 Helper 已安装并且 Socket 存在。
+- 确认后台服务已在系统设置中批准，并在应用内重试连接。
 - 部分无风扇机型只能监控，无法调速。
 - 部分 Apple Silicon 固件可能只允许在系统已经激活风扇后接管控制。
 
