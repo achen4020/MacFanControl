@@ -40,7 +40,7 @@ LaunchDaemon plist 使用 `BundleProgram` 指向 `Contents/Resources/MacFanContr
 
 - 获取 Helper 版本和可用状态。
 - 一次返回全部风扇的当前、最小、最大、目标转速和模式。
-- 为全部风扇设置经过归一化的目标转速。
+- 为指定风扇设置经过边界校验的目标转速。
 - 恢复全部风扇到系统自动模式。
 - 在支持的机型上解锁或释放 Apple Silicon 风扇控制。
 - 获取可识别的 SMC 温度数据。
@@ -49,7 +49,7 @@ LaunchDaemon plist 使用 `BundleProgram` 指向 `Contents/Resources/MacFanContr
 
 ### 调用者认证与安全约束
 
-Helper 在 `listener(_:shouldAcceptNewConnection:)` 中读取连接的 audit token，通过 Security.framework 解析调用者代码签名，并仅接受同时满足以下条件的进程：
+Helper 启动时从自身有效代码签名读取 Apple Team ID，并在 `NSXPCListener` 激活前调用 macOS 13 提供的 `setConnectionCodeSigningRequirement(_:)`。launchd/XPC 在调用 delegate 前自动拒绝不符合要求的连接。主应用也在激活 `NSXPCConnection` 前调用 `setCodeSigningRequirement(_:)`，只接受预期 Helper。双方要求同时满足：
 
 - Bundle ID 为 `com.macfancontrol.app`。
 - Apple Team ID 与构建时写入的允许 Team ID 一致。
@@ -57,7 +57,7 @@ Helper 在 `listener(_:shouldAcceptNewConnection:)` 中读取连接的 audit tok
 
 开发构建使用单独、明确的开发允许策略，不能把“任意同 Bundle ID 进程”作为正式发行策略。
 
-所有写操作还必须在 Helper 内再次校验：风扇索引存在，RPM 为有限整数，并限制在对应风扇的最小和最大转速之间。收到无效请求时返回失败且不写入 SMC。Helper 被正常终止时尝试恢复系统自动模式；主应用退出时仍显式调用恢复逻辑。
+所有写操作还必须在 Helper 内再次校验：风扇索引存在，RPM 为有限整数，并限制在对应风扇的最小和最大转速之间。收到无效请求时返回失败且不写入 SMC。每次请求只控制指定风扇，避免当前调用一次却重复覆盖全部风扇。Helper 被正常终止时尝试恢复系统自动模式；主应用退出时仍显式调用恢复逻辑。
 
 ## 构建与签名
 
