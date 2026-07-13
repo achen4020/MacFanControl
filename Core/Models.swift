@@ -233,23 +233,38 @@ public struct StorageUsage: Equatable {
     }
 }
 
-/// Cumulative network counters captured at one point in time.
+/// UInt32 counters exposed by `getifaddrs` for one interface.
+public struct NetworkInterfaceCounters: Equatable {
+    public let receivedBytes: UInt32
+    public let sentBytes: UInt32
+
+    public init(receivedBytes: UInt32, sentBytes: UInt32) {
+        self.receivedBytes = receivedBytes
+        self.sentBytes = sentBytes
+    }
+}
+
+public enum PhysicalNetworkInterface {
+    public static func isSupportedName(_ name: String) -> Bool {
+        guard name.hasPrefix("en") else { return false }
+        let suffix = name.dropFirst(2)
+        return !suffix.isEmpty && suffix.allSatisfy(\.isNumber)
+    }
+}
+
+/// Per-interface cumulative network counters captured at one point in time.
 public struct NetworkTransferSnapshot: Equatable {
     public let timestamp: Date
-    public let receivedBytes: UInt64
-    public let sentBytes: UInt64
-    public let interfaces: Set<String>
+    public let counters: [String: NetworkInterfaceCounters]
+
+    public var interfaces: Set<String> { Set(counters.keys) }
 
     public init(
         timestamp: Date,
-        receivedBytes: UInt64,
-        sentBytes: UInt64,
-        interfaces: Set<String>
+        counters: [String: NetworkInterfaceCounters]
     ) {
         self.timestamp = timestamp
-        self.receivedBytes = receivedBytes
-        self.sentBytes = sentBytes
-        self.interfaces = interfaces
+        self.counters = counters
     }
 }
 
@@ -275,16 +290,46 @@ public struct NetworkSpeed: Equatable {
         let elapsed = current.timestamp.timeIntervalSince(previous.timestamp)
         guard !current.interfaces.isEmpty,
               current.interfaces == previous.interfaces,
-              elapsed > 0,
-              current.receivedBytes >= previous.receivedBytes,
-              current.sentBytes >= previous.sentBytes else {
+              elapsed > 0 else {
             return .zero
         }
 
+        var receivedDelta: UInt64 = 0
+        var sentDelta: UInt64 = 0
+        for name in current.interfaces {
+            guard let previousCounters = previous.counters[name],
+                  let currentCounters = current.counters[name],
+                  let interfaceReceivedDelta = counterDelta(
+                    previous: previousCounters.receivedBytes,
+                    current: currentCounters.receivedBytes
+                  ),
+                  let interfaceSentDelta = counterDelta(
+                    previous: previousCounters.sentBytes,
+                    current: currentCounters.sentBytes
+                  ) else {
+                return .zero
+            }
+            receivedDelta += interfaceReceivedDelta
+            sentDelta += interfaceSentDelta
+        }
+
         return NetworkSpeed(
-            downloadBytesPerSecond: Double(current.receivedBytes - previous.receivedBytes) / elapsed,
-            uploadBytesPerSecond: Double(current.sentBytes - previous.sentBytes) / elapsed
+            downloadBytesPerSecond: Double(receivedDelta) / elapsed,
+            uploadBytesPerSecond: Double(sentDelta) / elapsed
         )
+    }
+
+    private static func counterDelta(previous: UInt32, current: UInt32) -> UInt64? {
+        if current >= previous {
+            return UInt64(current - previous)
+        }
+
+        // `if_data` counters are UInt32. Only treat a high-to-low transition as
+        // wraparound; an ordinary decrease means that the interface counter reset.
+        guard previous > UInt32.max / 2, current < UInt32.max / 2 else {
+            return nil
+        }
+        return UInt64(UInt32.max - previous) + 1 + UInt64(current)
     }
 
     public static func format(bytesPerSecond: Double) -> String {

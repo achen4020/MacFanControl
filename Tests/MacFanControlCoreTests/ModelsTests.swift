@@ -155,15 +155,11 @@ final class ModelsTests: XCTestCase {
     func testNetworkSpeed_calculatesRatesUsingElapsedTime() {
         let previous = NetworkTransferSnapshot(
             timestamp: Date(timeIntervalSince1970: 10),
-            receivedBytes: 1_000,
-            sentBytes: 2_000,
-            interfaces: ["en0"]
+            counters: ["en0": NetworkInterfaceCounters(receivedBytes: 1_000, sentBytes: 2_000)]
         )
         let current = NetworkTransferSnapshot(
             timestamp: Date(timeIntervalSince1970: 12),
-            receivedBytes: 5_000,
-            sentBytes: 3_000,
-            interfaces: ["en0"]
+            counters: ["en0": NetworkInterfaceCounters(receivedBytes: 5_000, sentBytes: 3_000)]
         )
 
         let speed = NetworkSpeed.between(previous: previous, current: current)
@@ -175,32 +171,54 @@ final class ModelsTests: XCTestCase {
     func testNetworkSpeed_rejectsDiscontinuousSnapshots() {
         let base = NetworkTransferSnapshot(
             timestamp: Date(timeIntervalSince1970: 10),
-            receivedBytes: 2_000,
-            sentBytes: 2_000,
-            interfaces: ["en0"]
+            counters: ["en0": NetworkInterfaceCounters(receivedBytes: 2_000, sentBytes: 2_000)]
         )
         let changed = NetworkTransferSnapshot(
             timestamp: Date(timeIntervalSince1970: 12),
-            receivedBytes: 3_000,
-            sentBytes: 3_000,
-            interfaces: ["en1"]
+            counters: ["en1": NetworkInterfaceCounters(receivedBytes: 3_000, sentBytes: 3_000)]
         )
         let reset = NetworkTransferSnapshot(
             timestamp: Date(timeIntervalSince1970: 12),
-            receivedBytes: 1_000,
-            sentBytes: 1_000,
-            interfaces: ["en0"]
+            counters: ["en0": NetworkInterfaceCounters(receivedBytes: 1_000, sentBytes: 1_000)]
         )
         let invalidTime = NetworkTransferSnapshot(
             timestamp: Date(timeIntervalSince1970: 10),
-            receivedBytes: 3_000,
-            sentBytes: 3_000,
-            interfaces: ["en0"]
+            counters: ["en0": NetworkInterfaceCounters(receivedBytes: 3_000, sentBytes: 3_000)]
         )
 
         XCTAssertEqual(NetworkSpeed.between(previous: base, current: changed), .zero)
         XCTAssertEqual(NetworkSpeed.between(previous: base, current: reset), .zero)
         XCTAssertEqual(NetworkSpeed.between(previous: base, current: invalidTime), .zero)
+    }
+
+    func testNetworkSpeed_handlesPerInterfaceUInt32CounterWrap() {
+        let previous = NetworkTransferSnapshot(
+            timestamp: Date(timeIntervalSince1970: 10),
+            counters: [
+                "en0": NetworkInterfaceCounters(
+                    receivedBytes: UInt32.max - 999,
+                    sentBytes: UInt32.max - 499
+                )
+            ]
+        )
+        let current = NetworkTransferSnapshot(
+            timestamp: Date(timeIntervalSince1970: 12),
+            counters: ["en0": NetworkInterfaceCounters(receivedBytes: 1_000, sentBytes: 500)]
+        )
+
+        let speed = NetworkSpeed.between(previous: previous, current: current)
+
+        XCTAssertEqual(speed.downloadBytesPerSecond, 1_000)
+        XCTAssertEqual(speed.uploadBytesPerSecond, 500)
+    }
+
+    func testPhysicalNetworkInterfaceName_requiresEnFollowedByDigits() {
+        XCTAssertTrue(PhysicalNetworkInterface.isSupportedName("en0"))
+        XCTAssertTrue(PhysicalNetworkInterface.isSupportedName("en12"))
+        XCTAssertFalse(PhysicalNetworkInterface.isSupportedName("en"))
+        XCTAssertFalse(PhysicalNetworkInterface.isSupportedName("energy0"))
+        XCTAssertFalse(PhysicalNetworkInterface.isSupportedName("awdl0"))
+        XCTAssertFalse(PhysicalNetworkInterface.isSupportedName("utun3"))
     }
 
     func testNetworkSpeed_formatsUnits() {

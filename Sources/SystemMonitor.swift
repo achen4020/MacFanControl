@@ -207,7 +207,7 @@ class NetworkMonitor {
             let flags = Int32(interface.ifa_flags)
             let family = interface.ifa_addr.map { Int32($0.pointee.sa_family) }
 
-            if name.hasPrefix("en"),
+            if PhysicalNetworkInterface.isSupportedName(name),
                (flags & IFF_UP) != 0,
                (flags & IFF_RUNNING) != 0,
                family == AF_INET || family == AF_INET6 {
@@ -217,8 +217,7 @@ class NetworkMonitor {
             cursor = interface.ifa_next
         }
 
-        var receivedBytes: UInt64 = 0
-        var sentBytes: UInt64 = 0
+        var counters: [String: NetworkInterfaceCounters] = [:]
         cursor = firstAddress
 
         while let current = cursor {
@@ -230,8 +229,10 @@ class NetworkMonitor {
                family == AF_LINK,
                let rawData = interface.ifa_data {
                 let data = rawData.assumingMemoryBound(to: if_data.self).pointee
-                receivedBytes += UInt64(data.ifi_ibytes)
-                sentBytes += UInt64(data.ifi_obytes)
+                counters[name] = NetworkInterfaceCounters(
+                    receivedBytes: data.ifi_ibytes,
+                    sentBytes: data.ifi_obytes
+                )
             }
 
             cursor = interface.ifa_next
@@ -239,9 +240,7 @@ class NetworkMonitor {
 
         return NetworkTransferSnapshot(
             timestamp: Date(),
-            receivedBytes: receivedBytes,
-            sentBytes: sentBytes,
-            interfaces: activeInterfaces
+            counters: counters
         )
     }
 }
