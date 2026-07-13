@@ -6,7 +6,13 @@ import ServiceManagement
 
 @main
 struct MacFanControlApp: App {
-    @StateObject private var fanController = FanController.shared
+    @StateObject private var fanController: FanController
+
+    init() {
+        let controller = FanController.shared
+        _fanController = StateObject(wrappedValue: controller)
+        controller.startMonitoring()
+    }
 
     var body: some Scene {
         // Menu Bar Extra (状态栏应用)
