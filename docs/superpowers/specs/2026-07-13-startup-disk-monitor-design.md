@@ -38,7 +38,7 @@
 `FanController` 增加可选的 `ssdTemperature`：
 
 - Apple Silicon HID 路径只接受名称精确等于 `NAND CH0 temp` 的读数。
-- Intel/SMC 回退路径接受现有 SMC 结果中名称为 `SSD` 的读数。
+- Intel/SMC 回退路径不显示 SSD 温度；其 `SSD` 标签对应另一条 SMC key，不能冒充已验证的 NAND 传感器。
 - 本次读取没有 SSD 温度时将属性设为 `nil`，避免继续显示过期值。
 
 ## 界面

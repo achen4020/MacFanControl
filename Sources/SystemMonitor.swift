@@ -141,7 +141,7 @@ class StorageMonitor {
     private let path: String
     private let cacheInterval: TimeInterval
     private var cachedUsage: StorageUsage?
-    private var lastUpdate: Date?
+    private var lastAttempt: Date?
 
     init(
         fileManager: FileManager = .default,
@@ -154,21 +154,22 @@ class StorageMonitor {
     }
 
     func getStorageUsage() -> StorageUsage? {
-        if let cachedUsage,
-           let lastUpdate,
-           Date().timeIntervalSince(lastUpdate) < cacheInterval {
+        if let lastAttempt,
+           Date().timeIntervalSince(lastAttempt) < cacheInterval {
             return cachedUsage
         }
+
+        lastAttempt = Date()
 
         guard let attributes = try? fileManager.attributesOfFileSystem(forPath: path),
               let total = (attributes[.systemSize] as? NSNumber)?.uint64Value,
               let available = (attributes[.systemFreeSize] as? NSNumber)?.uint64Value,
               let usage = StorageUsage(total: total, available: available) else {
+            cachedUsage = nil
             return nil
         }
 
         cachedUsage = usage
-        lastUpdate = Date()
         return usage
     }
 }

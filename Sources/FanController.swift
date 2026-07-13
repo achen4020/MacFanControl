@@ -498,6 +498,9 @@ class FanController: ObservableObject {
     }
 
     private func fallbackToSMC() {
+        // SMC's legacy "SSD" label maps to TH0P, not the verified NAND sensor.
+        ssdTemperature = nil
+
         do {
             try smc.open()
         } catch {
@@ -513,7 +516,6 @@ class FanController: ObservableObject {
         gpuTemperature = smc.getGPUTemperature()
 
         let allSensors = smc.getAllTemperatureSensors()
-        ssdTemperature = allSensors.first(where: { $0.key == "SSD" })?.value
         sensorCount = allSensors.count
         temperatures = allSensors.map { sensor in
             TemperatureInfo(id: sensor.key, name: sensor.key, value: sensor.value)

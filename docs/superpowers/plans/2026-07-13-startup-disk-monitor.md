@@ -11,7 +11,7 @@
 ## 全局约束
 
 - 只统计当前启动卷 `/`。
-- SSD 温度只接受精确名称 `NAND CH0 temp`，SMC 回退接受键 `SSD`。
+- SSD 温度只接受精确名称 `NAND CH0 temp`，SMC 回退不提供 SSD 温度。
 - 文件系统读取失败时隐藏容量行，不显示零值。
 - 不新增第三方依赖，不修改风扇控制和 HID 读取方式。
 
@@ -114,7 +114,7 @@ Expected: 3 个容量测试通过。
 private let storageMonitor: StorageMonitor
 ```
 
-构造函数注入默认 `StorageMonitor()`。每轮监控更新 `storageUsage`；HID 读数精确查找 `NAND CH0 temp` 并在主线程更新 `ssdTemperature`。SMC 回退从 `allSensors.first { $0.key == "SSD" }` 更新温度，无读数时设为 `nil`。
+构造函数注入默认 `StorageMonitor()`。每轮监控更新 `storageUsage`；HID 读数精确查找 `NAND CH0 temp` 并在主线程更新 `ssdTemperature`。SMC 回退明确将 SSD 温度设为 `nil`，避免把其他 SMC key 误认为 NAND 温度。
 
 - [ ] **Step 3：运行完整构建**
 
