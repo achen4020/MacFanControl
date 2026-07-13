@@ -219,8 +219,12 @@ cat > "$NOTARY_TOOLS/ditto" <<'EOF'
 #!/bin/bash
 set -euo pipefail
 printf 'ditto:%s\n' "$*" >> "${FAKE_NOTARY_EVENTS:?}"
-destination="${!#}"
-printf 'fake zip\n' > "$destination"
+if [[ "$1" == '-c' ]]; then
+    destination="${!#}"
+    printf 'fake zip\n' > "$destination"
+else
+    /bin/cp -R "$1" "$2"
+fi
 EOF
 
 cat > "$NOTARY_TOOLS/xcrun" <<'EOF'
@@ -234,6 +238,8 @@ if [[ "$1 $2" == 'notarytool submit' ]]; then
         printf '{"id":"submission-123","status":"%s"}\n' "${FAKE_NOTARY_STATUS:?}"
     fi
     [[ "${FAKE_NOTARY_SUBMIT_FAIL:-0}" != '1' ]]
+elif [[ "$1 $2" == 'stapler staple' ]]; then
+    printf 'stapled\n' > "$3/Contents/fake-stapled-marker"
 fi
 EOF
 
@@ -253,6 +259,7 @@ cat > "$NOTARY_TOOLS/mv" <<'EOF'
 #!/bin/bash
 set -euo pipefail
 destination="${!#}"
+source_path="$1"
 marker="${FAKE_MV_FAILURE_MARKER:-}"
 if [[ "${FAKE_MV_FAIL_SHA_ONCE:-0}" == '1' \
     && "$destination" == *'.zip.sha256' \
@@ -261,7 +268,15 @@ if [[ "${FAKE_MV_FAIL_SHA_ONCE:-0}" == '1' \
     : > "$marker"
     exit 75
 fi
-exec /bin/mv "$@"
+/bin/mv "$@"
+signal_marker="${FAKE_MV_SIGNAL_MARKER:-}"
+if [[ "${FAKE_MV_SIGNAL_AFTER_BACKUP:-0}" == '1' \
+    && "$destination" == */previous.zip \
+    && -n "$signal_marker" \
+    && ! -e "$signal_marker" ]]; then
+    : > "$signal_marker"
+    kill -TERM "$PPID"
+fi
 EOF
 chmod +x "$NOTARY_TOOLS/ditto" "$NOTARY_TOOLS/xcrun" \
     "$NOTARY_TOOLS/spctl" "$NOTARY_TOOLS/shasum" "$NOTARY_TOOLS/mv"
@@ -271,6 +286,33 @@ FINAL_SHA="$FINAL_ZIP.sha256"
 printf 'old zip\n' > "$FINAL_ZIP"
 printf 'old sha\n' > "$FINAL_SHA"
 : > "$NOTARY_EVENTS"
+
+expect_semver_failure() {
+    local version="$1"
+    local output
+    if output="$(bash "$NOTARIZE_SCRIPT" "$NOTARY_APP" "$version" 'Test-Profile' 2>&1)"; then
+        fail "notarization script accepted invalid SemVer: $version"
+    fi
+    [[ "$output" == *'语义化版本号'* ]] \
+        || fail "invalid SemVer did not fail version validation: $version"
+}
+
+expect_semver_failure '1.2.3-01'
+expect_semver_failure '1.2.3-alpha.01'
+
+expect_semver_reaches_app_validation() {
+    local version="$1"
+    local output
+    if output="$(bash "$NOTARIZE_SCRIPT" '/missing/MacFanControl.app' \
+        "$version" 'Test-Profile' 2>&1)"; then
+        fail "missing app unexpectedly passed validation for SemVer: $version"
+    fi
+    [[ "$output" == *'应用包不存在'* ]] \
+        || fail "valid SemVer was rejected before app validation: $version"
+}
+
+expect_semver_reaches_app_validation '1.2.3-0'
+expect_semver_reaches_app_validation '1.2.3-alpha-beta+build.01'
 
 if PATH="$NOTARY_TOOLS:$PATH" \
     FAKE_NOTARY_EVENTS="$NOTARY_EVENTS" \
@@ -329,6 +371,35 @@ fi
 [[ "$(cat "$FINAL_SHA")" == 'old sha' ]] \
     || fail "partial publication failure did not restore the existing checksum"
 
+SIGNAL_VERSION='1.2.3-0'
+SIGNAL_ZIP="$NOTARY_TEST_DIR/MacFanControl_v${SIGNAL_VERSION}.zip"
+SIGNAL_SHA="$SIGNAL_ZIP.sha256"
+SIGNAL_MARKER="$NOTARY_TEST_DIR/mv-signalled"
+printf 'old signal zip\n' > "$SIGNAL_ZIP"
+printf 'old signal sha\n' > "$SIGNAL_SHA"
+: > "$NOTARY_EVENTS"
+PATH="$NOTARY_TOOLS:$PATH" \
+FAKE_NOTARY_EVENTS="$NOTARY_EVENTS" \
+FAKE_NOTARY_STATUS='Accepted' \
+FAKE_MV_SIGNAL_AFTER_BACKUP=1 \
+FAKE_MV_SIGNAL_MARKER="$SIGNAL_MARKER" \
+bash "$NOTARIZE_SCRIPT" "$NOTARY_APP" "$SIGNAL_VERSION" 'Test-Profile' \
+    >/dev/null 2>&1 || true
+[[ -e "$SIGNAL_MARKER" ]] || fail "signal race fixture did not run"
+signal_old_complete=false
+signal_new_complete=false
+if [[ "$(cat "$SIGNAL_ZIP" 2>/dev/null || true)" == 'old signal zip' \
+    && "$(cat "$SIGNAL_SHA" 2>/dev/null || true)" == 'old signal sha' ]]; then
+    signal_old_complete=true
+fi
+if [[ "$(cat "$SIGNAL_ZIP" 2>/dev/null || true)" == 'fake zip' \
+    && "$(cat "$SIGNAL_SHA" 2>/dev/null || true)" \
+        == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  MacFanControl_v${SIGNAL_VERSION}.zip" ]]; then
+    signal_new_complete=true
+fi
+[[ "$signal_old_complete" == true || "$signal_new_complete" == true ]] \
+    || fail "signal during publication left missing or mixed artifacts"
+
 : > "$NOTARY_EVENTS"
 PATH="$NOTARY_TOOLS:$PATH" \
 FAKE_NOTARY_EVENTS="$NOTARY_EVENTS" \
@@ -340,6 +411,12 @@ bash "$NOTARIZE_SCRIPT" "$NOTARY_APP" '1.2.3' 'Test-Profile' >/dev/null
 [[ "$(cat "$FINAL_SHA")" \
     == 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  MacFanControl_v1.2.3.zip' ]] \
     || fail "checksum file format is not '<sha256><two spaces><filename>'"
+[[ ! -e "$NOTARY_APP/Contents/fake-stapled-marker" ]] \
+    || fail "notarization modified the caller's input app"
+stapled_target="$(sed -n 's/^xcrun:stapler staple //p' "$NOTARY_EVENTS")"
+[[ -n "$stapled_target" && "$stapled_target" != "$NOTARY_APP" \
+    && "$stapled_target" == */.notarize-release.*/MacFanControl.app ]] \
+    || fail "stapler did not target a private staged app copy"
 
 submit_line="$(rg -n 'notarytool submit' "$NOTARY_EVENTS" | cut -d: -f1)"
 staple_line="$(rg -n 'stapler staple' "$NOTARY_EVENTS" | cut -d: -f1)"

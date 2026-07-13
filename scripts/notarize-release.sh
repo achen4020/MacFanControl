@@ -17,6 +17,26 @@ KEYCHAIN_PROFILE="$3"
 SEMANTIC_VERSION_PATTERN='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 [[ "$VERSION" =~ $SEMANTIC_VERSION_PATTERN ]] \
     || fail "版本必须是安全的语义化版本号"
+
+version_without_build="${VERSION%%+*}"
+if [[ "$version_without_build" == *-* ]]; then
+    prerelease="${version_without_build#*-}"
+    remaining_identifiers="$prerelease"
+    while [[ -n "$remaining_identifiers" ]]; do
+        if [[ "$remaining_identifiers" == *.* ]]; then
+            prerelease_identifier="${remaining_identifiers%%.*}"
+            remaining_identifiers="${remaining_identifiers#*.}"
+        else
+            prerelease_identifier="$remaining_identifiers"
+            remaining_identifiers=
+        fi
+        if [[ "$prerelease_identifier" =~ ^[0-9]+$ \
+            && "$prerelease_identifier" == 0* \
+            && "$prerelease_identifier" != '0' ]]; then
+            fail "版本必须是安全的语义化版本号：数字预发布标识不能有前导零"
+        fi
+    done
+fi
 [[ -n "$KEYCHAIN_PROFILE" ]] || fail "keychain profile 不能为空"
 [[ -d "$APP_PATH" && -f "$APP_PATH/Contents/Info.plist" ]] \
     || fail "应用包不存在或结构无效：$APP_PATH"
@@ -34,6 +54,7 @@ SUBMISSION_ZIP="$WORK_DIR/submission.zip"
 SUBMISSION_JSON="$WORK_DIR/submission.json"
 STAGED_ZIP="$WORK_DIR/$ZIP_NAME"
 STAGED_SHA="$WORK_DIR/$SHA_NAME"
+STAGED_APP="$WORK_DIR/$(basename "$APP_PATH")"
 BACKUP_ZIP="$WORK_DIR/previous.zip"
 BACKUP_SHA="$WORK_DIR/previous.sha256"
 HAD_OUTPUT_ZIP=false
@@ -45,7 +66,8 @@ PUBLISH_COMPLETE=false
 cleanup() {
     local exit_status=$?
     local can_remove_work_dir=true
-    trap - EXIT INT TERM HUP
+    trap - EXIT
+    trap '' INT TERM HUP
     set +e
 
     if [[ "$PUBLISH_COMPLETE" != true ]]; then
@@ -114,17 +136,19 @@ if [[ -z "$submission_id" || "$submission_status" != 'Accepted' ]]; then
 fi
 
 printf '公证已通过（submission ID：%s），装订并验证票据……\n' "$submission_id"
-xcrun stapler staple "$APP_PATH"
-xcrun stapler validate "$APP_PATH"
-spctl --assess --type execute "$APP_PATH"
+ditto "$APP_PATH" "$STAGED_APP"
+xcrun stapler staple "$STAGED_APP"
+xcrun stapler validate "$STAGED_APP"
+spctl --assess --type execute "$STAGED_APP"
 
 printf '创建最终发布包和 SHA-256……\n'
-ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$STAGED_ZIP"
+ditto -c -k --sequesterRsrc --keepParent "$STAGED_APP" "$STAGED_ZIP"
 checksum_output="$(shasum -a 256 "$STAGED_ZIP")"
 checksum="${checksum_output%%[[:space:]]*}"
 [[ "$checksum" =~ ^[A-Fa-f0-9]{64}$ ]] || fail "无法生成有效的 SHA-256"
 printf '%s  %s\n' "$checksum" "$ZIP_NAME" > "$STAGED_SHA"
 
+trap '' INT TERM HUP
 if [[ -e "$OUTPUT_ZIP" ]]; then
     mv "$OUTPUT_ZIP" "$BACKUP_ZIP" || fail "无法备份已有发布 ZIP"
     HAD_OUTPUT_ZIP=true
@@ -139,6 +163,9 @@ PUBLISHED_ZIP=true
 mv "$STAGED_SHA" "$OUTPUT_SHA" || fail "无法发布 SHA-256 文件"
 PUBLISHED_SHA=true
 PUBLISH_COMPLETE=true
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 printf '公证发布包已生成：%s\n' "$OUTPUT_ZIP"
 printf 'SHA-256 文件已生成：%s\n' "$OUTPUT_SHA"
