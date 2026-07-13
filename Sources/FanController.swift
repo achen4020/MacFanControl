@@ -501,13 +501,14 @@ class FanController: ObservableObject {
 
     // MARK: - Fan Control
 
-    func setFanSpeed(fanIndex: Int, speed: Int) {
+    @discardableResult
+    func setFanSpeed(fanIndex: Int, speed: Int) -> Bool {
         guard canControlFans else {
             lastError = .helperNotInstalled
-            return
+            return false
         }
 
-        guard fanIndex < fans.count else { return }
+        guard fanIndex < fans.count else { return false }
 
         let fan = fans[fanIndex]
         let clampedSpeed = max(fan.minSpeed, min(fan.maxSpeed, speed))
@@ -518,10 +519,11 @@ class FanController: ObservableObject {
                 fans[fanIndex].targetSpeed = clampedSpeed
                 fans[fanIndex].isManualMode = true
                 lastError = nil
+                return true
             } else {
                 lastError = .fanControlFailed("Helper 通信失败")
+                return false
             }
-            return
         }
 
         // 后备: 传统 SMC (Intel)
@@ -530,19 +532,22 @@ class FanController: ObservableObject {
             fans[fanIndex].targetSpeed = clampedSpeed
             fans[fanIndex].isManualMode = true
             lastError = nil
+            return true
         } catch {
             lastError = .fanControlFailed(error.localizedDescription)
+            return false
         }
     }
 
-    func setFanSpeedPercentage(fanIndex: Int, percentage: Double) {
-        guard fanIndex < fans.count else { return }
+    @discardableResult
+    func setFanSpeedPercentage(fanIndex: Int, percentage: Double) -> Bool {
+        guard fanIndex < fans.count else { return false }
 
         let fan = fans[fanIndex]
         let range = fan.maxSpeed - fan.minSpeed
         let speed = fan.minSpeed + Int(Double(range) * percentage / 100.0)
 
-        setFanSpeed(fanIndex: fanIndex, speed: speed)
+        return setFanSpeed(fanIndex: fanIndex, speed: speed)
     }
 
     func resetFanToAuto(fanIndex: Int) {
@@ -600,7 +605,14 @@ class FanController: ObservableObject {
     }
 
     private func startAutoControlIfAvailable(restartTimer: Bool = false) {
-        guard isAutoControlEnabled, activeProfile != nil, canControlFans else { return }
+        guard isAutoControlEnabled, activeProfile != nil else { return }
+
+        guard canControlFans else {
+            autoControlTimer?.invalidate()
+            autoControlTimer = nil
+            lastAutoTargetPercentage = -1
+            return
+        }
 
         if autoControlTimer == nil || restartTimer {
             autoControlTimer?.invalidate()
@@ -615,7 +627,10 @@ class FanController: ObservableObject {
     }
 
     private func applyAutoControl() {
-        guard isAutoControlEnabled, let profile = activeProfile, !fans.isEmpty else { return }
+        guard isAutoControlEnabled,
+              canControlFans,
+              let profile = activeProfile,
+              !fans.isEmpty else { return }
 
         isApplyingAutoControl = true
         defer { isApplyingAutoControl = false }
@@ -624,10 +639,16 @@ class FanController: ObservableObject {
 
         // 只在目标转速变化超过 1% 时才发送命令，避免频繁 socket 通信
         guard abs(targetPercentage - lastAutoTargetPercentage) >= 1.0 else { return }
-        lastAutoTargetPercentage = targetPercentage
 
+        var allSucceeded = true
         for i in 0..<fans.count {
-            setFanSpeedPercentage(fanIndex: i, percentage: targetPercentage)
+            if !setFanSpeedPercentage(fanIndex: i, percentage: targetPercentage) {
+                allSucceeded = false
+            }
+        }
+
+        if allSucceeded {
+            lastAutoTargetPercentage = targetPercentage
         }
     }
 
