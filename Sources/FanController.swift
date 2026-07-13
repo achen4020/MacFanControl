@@ -60,6 +60,7 @@ class FanController: ObservableObject {
     private let helperLifecycleGate = HelperLifecycleGate()
     private var isUpdatingFanInfo = false
     private var isUpdatingTemperatures = false
+    private var legacyHelperMigrationCompleted = false
     private var lastAutoTargetPercentage: Double = -1
     private let updateInterval: TimeInterval = 2.0
     private var lastHighTempNotificationTime: Date?
@@ -316,6 +317,7 @@ class FanController: ObservableObject {
         let fanData = await fanControl.getFanData()
         let controlAvailable = fanControl.isAvailable
         isHelperReachable = controlAvailable
+        await migrateLegacyHelperIfNeeded(isConnected: controlAvailable)
 
         if !fanData.isEmpty {
             newFans = fanData.map { data in
@@ -370,6 +372,22 @@ class FanController: ObservableObject {
             ? isHelperReachable && !fans.isEmpty
             : !fans.isEmpty
         await startAutoControlIfAvailable()
+    }
+
+    private func migrateLegacyHelperIfNeeded(isConnected: Bool) async {
+        guard !legacyHelperMigrationCompleted else { return }
+        let result = await HelperLegacyMigrationCoordinator.migrateIfConnected(
+            isConnected,
+            cleanup: { [smcHelper] in await smcHelper.removeLegacyHelper() }
+        )
+        switch result {
+        case .notConnected:
+            break
+        case .cleaned:
+            legacyHelperMigrationCompleted = true
+        case .cleanupFailed:
+            lastError = .helperInstallFailed("旧版风扇控制服务迁移失败，请重试连接")
+        }
     }
 
     /// Compare two fan arrays without triggering @Published

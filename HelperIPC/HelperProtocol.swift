@@ -1,7 +1,7 @@
 import Foundation
 
-public let helperMachServiceName = "com.macfancontrol.helper"
-public let helperBundleIdentifier = "com.macfancontrol.helper"
+public let helperMachServiceName = "com.macfancontrol.helper.v2"
+public let helperBundleIdentifier = "com.macfancontrol.helper.v2"
 public let mainAppBundleIdentifier = "com.macfancontrol.app"
 
 @objc public protocol HelperToolProtocol {

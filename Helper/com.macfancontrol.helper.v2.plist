@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.macfancontrol.helper</string>
+    <string>com.macfancontrol.helper.v2</string>
 
     <key>MachServices</key>
     <dict>
-        <key>com.macfancontrol.helper</key>
+        <key>com.macfancontrol.helper.v2</key>
         <true/>
     </dict>
 

@@ -11,7 +11,7 @@
 - 发行渠道是 GitHub Releases 或官网直接下载，不提交 Mac App Store。
 - 主应用保持非沙盒运行，但所有主可执行文件启用 Hardened Runtime。
 - 使用同一 Apple Developer Team 的 `Developer ID Application` 身份分别签署 Helper 和主应用。
-- 默认保持现有 Bundle ID：主应用 `com.macfancontrol.app`，Helper `com.macfancontrol.helper`。
+- 主应用保持现有 Bundle ID `com.macfancontrol.app`；安全 Helper 使用 `com.macfancontrol.helper.v2`，避免与已安装的旧版同名 LaunchDaemon 冲突。
 - Developer ID 默认 designated requirement 作为稳定身份，不再使用仅校验 Bundle ID 的宽松自定义 requirement。
 - 公证凭据只保存在用户登录钥匙串，不进入脚本、Git 或构建产物。
 - 发布包同时支持 `arm64` 和 `x86_64`；如果某个目标无法构建为 Universal Binary，发布脚本必须失败，不能生成与 README 声明不一致的包。
@@ -27,12 +27,12 @@ MacFanControl.app/
 └── Contents/
     ├── MacOS/MacFanControl
     ├── Resources/MacFanControlHelper
-    └── Library/LaunchDaemons/com.macfancontrol.helper.plist
+    └── Library/LaunchDaemons/com.macfancontrol.helper.v2.plist
 ```
 
-LaunchDaemon plist 使用 `BundleProgram` 指向 `Contents/Resources/MacFanControlHelper`，通过 `MachServices` 发布 `com.macfancontrol.helper`。主应用使用 `SMAppService.daemon(plistName:)` 注册、查询状态和注销服务；未获批准时向用户说明，并提供打开“系统设置 > 通用 > 登录项与扩展”的入口。
+LaunchDaemon plist 使用 `BundleProgram` 指向 `Contents/Resources/MacFanControlHelper`，通过 `MachServices` 发布 `com.macfancontrol.helper.v2`。主应用使用 `SMAppService.daemon(plistName:)` 注册、查询状态和注销服务；未获批准时向用户说明，并提供打开“系统设置 > 通用 > 登录项与扩展”的入口。
 
-当前 `smc_helper.c`、AppleScript 安装代码、`/var/run/com.macfancontrol.smchelper.sock` 和对 `/Library/PrivilegedHelperTools` 的手工复制不再进入正式构建。旧安装脚本只保留为迁移/卸载工具，并明确标注为 legacy。
+当前 `smc_helper.c`、AppleScript 安装代码、`/var/run/com.macfancontrol.smchelper.sock` 和对 `/Library/PrivilegedHelperTools` 的手工复制不再进入正式构建。两个旧安装脚本明确停用，只保留旧服务卸载工具。
 
 ### XPC 协议
 
@@ -51,7 +51,8 @@ LaunchDaemon plist 使用 `BundleProgram` 指向 `Contents/Resources/MacFanContr
 
 Helper 启动时从自身有效代码签名读取 Apple Team ID，并在 `NSXPCListener` 激活前调用 macOS 13 提供的 `setConnectionCodeSigningRequirement(_:)`。launchd/XPC 在调用 delegate 前自动拒绝不符合要求的连接。主应用也在激活 `NSXPCConnection` 前调用 `setCodeSigningRequirement(_:)`，只接受预期 Helper。双方要求同时满足：
 
-- Bundle ID 为 `com.macfancontrol.app`。
+- Helper 只接受 Bundle ID 为 `com.macfancontrol.app` 的主应用。
+- 主应用只接受 Bundle ID 为 `com.macfancontrol.helper.v2` 的 Helper。
 - Apple Team ID 与构建时写入的允许 Team ID 一致。
 - 签名有效且由 Apple Developer ID 信任链锚定。
 
@@ -98,7 +99,7 @@ xcrun notarytool submit <zip> --keychain-profile <profile> --wait
 - 等待批准或被拒绝：明确提示需要在系统设置中批准，不反复弹出管理员请求。
 - Helper 不可用：监控和截图功能继续工作，风扇控制界面显示不可用原因。
 
-对于已经安装旧 `com.macfancontrol.smchelper` LaunchDaemon 的用户，新版本在用户确认后提供一次性卸载说明或迁移操作，避免旧 Socket Helper 与新 XPC Helper 同时控制风扇。
+对于已经安装旧 `com.macfancontrol.helper` 或 `com.macfancontrol.smchelper` LaunchDaemon 的用户，v2 Helper 首次成功连接后先恢复全部风扇为系统自动模式，再自动停止并删除固定路径中的旧服务，避免旧版无签名 Helper 与新 XPC Helper 同时控制风扇。
 
 ## 测试与验收
 

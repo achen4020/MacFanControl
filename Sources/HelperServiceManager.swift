@@ -7,7 +7,7 @@ final class HelperServiceManager {
 
     private let service: SMAppService
 
-    init(service: SMAppService = SMAppService.daemon(plistName: "com.macfancontrol.helper.plist")) {
+    init(service: SMAppService = SMAppService.daemon(plistName: "com.macfancontrol.helper.v2.plist")) {
         self.service = service
     }
 

@@ -24,9 +24,14 @@ public protocol LegacyHelperRemoving: AnyObject {
 }
 
 public final class LegacyHelperRemover: LegacyHelperRemoving {
-    private static let legacyPlist = "/Library/LaunchDaemons/com.macfancontrol.smchelper.plist"
+    private static let legacyPlists = [
+        "/Library/LaunchDaemons/com.macfancontrol.helper.plist",
+        "/Library/LaunchDaemons/com.macfancontrol.smchelper.plist"
+    ]
     private static let legacyPaths = [
-        legacyPlist,
+        "/Library/LaunchDaemons/com.macfancontrol.helper.plist",
+        "/Library/PrivilegedHelperTools/com.macfancontrol.helper",
+        "/Library/LaunchDaemons/com.macfancontrol.smchelper.plist",
         "/Library/PrivilegedHelperTools/com.macfancontrol.smchelper",
         "/var/run/com.macfancontrol.smchelper.sock"
     ]
@@ -44,18 +49,20 @@ public final class LegacyHelperRemover: LegacyHelperRemoving {
     }
 
     public func remove() -> HelperOperationResult {
-        let commandResult: LegacyCommandResult
-        do {
-            commandResult = try executor.execute(
-                executable: "/bin/launchctl",
-                arguments: ["bootout", "system", Self.legacyPlist]
-            )
-        } catch {
-            return HelperOperationResult(success: false, error: "legacy_bootout_failed")
-        }
+        for plist in Self.legacyPlists {
+            let commandResult: LegacyCommandResult
+            do {
+                commandResult = try executor.execute(
+                    executable: "/bin/launchctl",
+                    arguments: ["bootout", "system", plist]
+                )
+            } catch {
+                return HelperOperationResult(success: false, error: "legacy_bootout_failed")
+            }
 
-        guard commandResult.terminationStatus == 0 || isServiceNotLoaded(commandResult.output) else {
-            return HelperOperationResult(success: false, error: "legacy_bootout_failed")
+            guard commandResult.terminationStatus == 0 || isServiceNotLoaded(commandResult.output) else {
+                return HelperOperationResult(success: false, error: "legacy_bootout_failed")
+            }
         }
 
         var removalFailed = false

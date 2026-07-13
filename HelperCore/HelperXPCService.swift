@@ -57,6 +57,11 @@ public final class HelperXPCService: NSObject, HelperToolProtocol {
     }
 
     public func removeLegacyHelper(reply: @escaping (Bool, String?) -> Void) {
+        let resetResult = service.resetAllFansToAuto()
+        guard resetResult.success else {
+            send(resetResult, using: reply)
+            return
+        }
         send(legacyRemover.remove(), using: reply)
     }
 

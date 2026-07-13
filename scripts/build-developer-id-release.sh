@@ -118,8 +118,8 @@ mkdir -p \
 
 cp "$ROOT_DIR/Sources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT_DIR/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
-cp "$ROOT_DIR/Helper/com.macfancontrol.helper.plist" \
-    "$APP/Contents/Library/LaunchDaemons/com.macfancontrol.helper.plist"
+cp "$ROOT_DIR/Helper/com.macfancontrol.helper.v2.plist" \
+    "$APP/Contents/Library/LaunchDaemons/com.macfancontrol.helper.v2.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 lipo -create \
@@ -144,14 +144,14 @@ verify_universal "$APP_EXECUTABLE"
 verify_universal "$HELPER_EXECUTABLE"
 
 PLIST_BUNDLE_PROGRAM="$(/usr/libexec/PlistBuddy -c 'Print :BundleProgram' \
-    "$APP/Contents/Library/LaunchDaemons/com.macfancontrol.helper.plist")"
+    "$APP/Contents/Library/LaunchDaemons/com.macfancontrol.helper.v2.plist")"
 [[ "$PLIST_BUNDLE_PROGRAM" == "Contents/Resources/MacFanControlHelper" ]] \
     || fail "LaunchDaemon BundleProgram 与包内 Helper 路径不一致"
 
 printf '签署 Helper……\n'
 codesign --force --timestamp --options runtime \
     --sign "$DEVELOPER_ID_APPLICATION" \
-    --identifier com.macfancontrol.helper \
+    --identifier com.macfancontrol.helper.v2 \
     "$HELPER_EXECUTABLE"
 
 printf '签署主应用……\n'

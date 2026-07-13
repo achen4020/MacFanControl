@@ -106,8 +106,8 @@ Expected: compilation fails because `FanRequestValidator`, payload types, codec,
 ```swift
 import Foundation
 
-public let helperMachServiceName = "com.macfancontrol.helper"
-public let helperBundleIdentifier = "com.macfancontrol.helper"
+public let helperMachServiceName = "com.macfancontrol.helper.v2"
+public let helperBundleIdentifier = "com.macfancontrol.helper.v2"
 public let mainAppBundleIdentifier = "com.macfancontrol.app"
 
 @objc public protocol HelperToolProtocol {
@@ -239,12 +239,12 @@ git commit -m "feat: implement validated fan helper service"
 - Create: `HelperIPC/CurrentCodeSignature.swift`
 - Replace: `Helper/main.swift`
 - Delete: `Helper/HelperProtocol.swift`
-- Modify: `Helper/com.macfancontrol.helper.plist`
+- Modify: `Helper/com.macfancontrol.helper.v2.plist`
 - Create: `Tests/HelperIPCTests/LaunchDaemonLayoutTests.swift`
 
 - [ ] **Step 1: Add failing plist and requirement tests**
 
-The test reads `Helper/com.macfancontrol.helper.plist` and asserts:
+The test reads `Helper/com.macfancontrol.helper.v2.plist` and asserts:
 
 ```swift
 XCTAssertEqual(plist["Label"] as? String, helperMachServiceName)
@@ -394,7 +394,7 @@ Add a fake legacy-removal executor test proving that removal runs `launchctl boo
 `HelperServiceManager` owns:
 
 ```swift
-private let service = SMAppService.daemon(plistName: "com.macfancontrol.helper.plist")
+private let service = SMAppService.daemon(plistName: "com.macfancontrol.helper.v2.plist")
 
 func register() throws { try service.register() }
 func unregister() async throws { try await service.unregister() }
@@ -408,6 +408,8 @@ Map `.notRegistered`, `.enabled`, `.requiresApproval`, and `.notFound` into `Hel
 Add `removeLegacyHelper` to the XPC service. It is callable only after the listener's code-signing requirement has accepted the main app. The root Helper runs `/bin/launchctl bootout system <legacy-plist>`, treats “service not loaded” as nonfatal, then removes exactly these paths:
 
 ```text
+/Library/LaunchDaemons/com.macfancontrol.helper.plist
+/Library/PrivilegedHelperTools/com.macfancontrol.helper
 /Library/LaunchDaemons/com.macfancontrol.smchelper.plist
 /Library/PrivilegedHelperTools/com.macfancontrol.smchelper
 /var/run/com.macfancontrol.smchelper.sock
@@ -474,7 +476,7 @@ Use these signing forms:
 
 ```bash
 codesign --force --timestamp --options runtime --sign "$DEVELOPER_ID_APPLICATION" \
-  --identifier com.macfancontrol.helper "$APP/Contents/Resources/MacFanControlHelper"
+  --identifier com.macfancontrol.helper.v2 "$APP/Contents/Resources/MacFanControlHelper"
 codesign --force --timestamp --options runtime --sign "$DEVELOPER_ID_APPLICATION" "$APP"
 codesign --verify --strict --verbose=2 "$APP"
 ```

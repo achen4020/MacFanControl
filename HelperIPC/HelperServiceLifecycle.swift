@@ -68,6 +68,22 @@ public enum HelperUninstallResult: Equatable, Sendable {
     case unregisterFailed
 }
 
+public enum HelperLegacyMigrationResult: Equatable, Sendable {
+    case notConnected
+    case cleaned
+    case cleanupFailed
+}
+
+public enum HelperLegacyMigrationCoordinator {
+    public static func migrateIfConnected(
+        _ isConnected: Bool,
+        cleanup: () async -> Bool
+    ) async -> HelperLegacyMigrationResult {
+        guard isConnected else { return .notConnected }
+        return await cleanup() ? .cleaned : .cleanupFailed
+    }
+}
+
 public enum HelperUninstallCoordinator {
     public static func uninstall(
         cleanup: () async -> Bool,

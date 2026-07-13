@@ -130,6 +130,8 @@ swift run MacFanControl
 
 温度和系统状态监控不要求 root 权限；修改风扇模式和目标转速需要包内的特权 Helper。应用通过 macOS `SMAppService` 注册 Helper，并使用经过双方代码签名校验的 XPC 通信。首次启用时，系统可能要求在“系统设置 > 通用 > 登录项与扩展”中批准后台服务。
 
+安全 Helper 使用独立的 `com.macfancontrol.helper.v2` 服务标识。首次成功连接后，它会先把风扇恢复为系统自动模式，再删除旧版 `com.macfancontrol.helper` 与 `com.macfancontrol.smchelper` 服务，避免旧版无签名服务与新版同时控制风扇。
+
 ## 架构
 
 ```text
@@ -201,8 +203,8 @@ open /Applications/MacFanControl.app
 ### Helper 无法启动
 
 ```bash
-sudo log show --predicate 'subsystem == "com.macfancontrol.helper"' --last 5m
-sudo launchctl print system/com.macfancontrol.helper
+sudo log show --predicate 'subsystem == "com.macfancontrol.helper.v2"' --last 5m
+sudo launchctl print system/com.macfancontrol.helper.v2
 ```
 
 ### 无法控制风扇

@@ -4,7 +4,7 @@ final class HelperServiceLifecycleSourceTests: XCTestCase {
     func testManagerUsesBundledDaemonAndMapsEveryServiceStatus() throws {
         let source = try readSource("Sources/HelperServiceManager.swift")
 
-        XCTAssertTrue(source.contains(#"SMAppService.daemon(plistName: "com.macfancontrol.helper.plist")"#))
+        XCTAssertTrue(source.contains(#"SMAppService.daemon(plistName: "com.macfancontrol.helper.v2.plist")"#))
         XCTAssertTrue(source.contains("case .notRegistered:"))
         XCTAssertTrue(source.contains("case .enabled:"))
         XCTAssertTrue(source.contains("case .requiresApproval:"))
@@ -30,6 +30,13 @@ final class HelperServiceLifecycleSourceTests: XCTestCase {
         XCTAssertTrue(controller.contains("@Published var isHelperReachable"))
         XCTAssertTrue(controller.contains("isConnectionAvailable: isHelperReachable"))
         XCTAssertTrue(controller.contains("canControlFans = isHelperReachable && !fans.isEmpty"))
+    }
+
+    func testSuccessfulHelperConnectionTriggersLegacyMigration() throws {
+        let controller = try readSource("Sources/FanController.swift")
+
+        XCTAssertTrue(controller.contains("await migrateLegacyHelperIfNeeded"))
+        XCTAssertTrue(controller.contains("smcHelper.removeLegacyHelper()"))
     }
 
     private func readSource(_ path: String) throws -> String {

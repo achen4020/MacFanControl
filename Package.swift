@@ -68,7 +68,7 @@ let package = Package(
             name: "MacFanControlHelper",
             dependencies: ["SMCKit", "HelperIPC", "MacFanControlHelperCore"],
             path: "Helper",
-            exclude: ["Info.plist", "com.macfancontrol.helper.plist"],
+            exclude: ["Info.plist", "com.macfancontrol.helper.v2.plist"],
             sources: ["main.swift"],
             linkerSettings: [
                 .unsafeFlags(["-framework", "IOKit"]),

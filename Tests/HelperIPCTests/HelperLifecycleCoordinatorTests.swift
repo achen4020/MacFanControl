@@ -42,6 +42,53 @@ final class HelperLifecycleCoordinatorTests: XCTestCase {
         XCTAssertTrue(afterEnd)
         await gate.end()
     }
+
+    func testLegacyMigrationRunsCleanupOnlyAfterConnection() async {
+        let recorder = MigrationRecorder(cleanupSucceeds: true)
+
+        let disconnected = await HelperLegacyMigrationCoordinator.migrateIfConnected(
+            false,
+            cleanup: { await recorder.cleanup() }
+        )
+        let connected = await HelperLegacyMigrationCoordinator.migrateIfConnected(
+            true,
+            cleanup: { await recorder.cleanup() }
+        )
+
+        XCTAssertEqual(disconnected, .notConnected)
+        XCTAssertEqual(connected, .cleaned)
+        let cleanupCount = await recorder.cleanupCount()
+        XCTAssertEqual(cleanupCount, 1)
+    }
+
+    func testLegacyMigrationReportsCleanupFailure() async {
+        let recorder = MigrationRecorder(cleanupSucceeds: false)
+
+        let result = await HelperLegacyMigrationCoordinator.migrateIfConnected(
+            true,
+            cleanup: { await recorder.cleanup() }
+        )
+
+        XCTAssertEqual(result, .cleanupFailed)
+        let cleanupCount = await recorder.cleanupCount()
+        XCTAssertEqual(cleanupCount, 1)
+    }
+}
+
+private actor MigrationRecorder {
+    private let cleanupSucceeds: Bool
+    private var count = 0
+
+    init(cleanupSucceeds: Bool) {
+        self.cleanupSucceeds = cleanupSucceeds
+    }
+
+    func cleanup() -> Bool {
+        count += 1
+        return cleanupSucceeds
+    }
+
+    func cleanupCount() -> Int { count }
 }
 
 private actor UninstallRecorder {

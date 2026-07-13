@@ -7,8 +7,9 @@ SCRIPT="$ROOT_DIR/scripts/build-developer-id-release.sh"
 NOTARIZE_SCRIPT="$ROOT_DIR/scripts/notarize-release.sh"
 INFO_PLIST="$ROOT_DIR/Sources/Info.plist"
 ENTITLEMENTS="$ROOT_DIR/Sources/MacFanControl.entitlements"
-LAUNCHD_PLIST="$ROOT_DIR/Helper/com.macfancontrol.helper.plist"
+LAUNCHD_PLIST="$ROOT_DIR/Helper/com.macfancontrol.helper.v2.plist"
 FAKE_TOOLS="$ROOT_DIR/Tests/Fixtures/DeveloperIDTools"
+LEGACY_INSTALLERS=("$ROOT_DIR/install-helper.sh" "$ROOT_DIR/install_smc_helper.sh")
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -22,6 +23,16 @@ require_pattern() {
 
 [[ -f "$SCRIPT" ]] || fail "missing scripts/build-developer-id-release.sh"
 
+for legacy_installer in "${LEGACY_INSTALLERS[@]}"; do
+    [[ -f "$legacy_installer" ]] || fail "missing disabled legacy installer: $legacy_installer"
+    rg -q '旧版.*安装脚本已停用' "$legacy_installer" \
+        || fail "legacy installer is not clearly disabled: $legacy_installer"
+    if rg -q 'launchctl[[:space:]]+(load|bootstrap)|cp .*PrivilegedHelperTools|chmod[[:space:]]+666' \
+        "$legacy_installer"; then
+        fail "legacy installer still performs privileged installation: $legacy_installer"
+    fi
+done
+
 require_pattern 'set -euo pipefail'
 require_pattern 'DEVELOPER_ID_APPLICATION'
 require_pattern 'DEVELOPMENT_TEAM'
@@ -32,7 +43,7 @@ require_pattern 'lipo[[:space:]]+-create'
 require_pattern 'lipo[[:space:]]+-archs'
 require_pattern 'Contents/Library/LaunchDaemons'
 require_pattern 'Contents/Resources/MacFanControlHelper'
-require_pattern '--identifier[[:space:]]+com\.macfancontrol\.helper'
+require_pattern '--identifier[[:space:]]+com\.macfancontrol\.helper\.v2'
 require_pattern '--timestamp'
 require_pattern '--options[[:space:]]+runtime'
 require_pattern '--entitlements'
@@ -148,7 +159,7 @@ mkdir -p \
 cp "$SCRIPT" "$PIPELINE_ROOT/scripts/build-developer-id-release.sh"
 cp "$INFO_PLIST" "$PIPELINE_ROOT/Sources/Info.plist"
 cp "$ENTITLEMENTS" "$PIPELINE_ROOT/Sources/MacFanControl.entitlements"
-cp "$LAUNCHD_PLIST" "$PIPELINE_ROOT/Helper/com.macfancontrol.helper.plist"
+cp "$LAUNCHD_PLIST" "$PIPELINE_ROOT/Helper/com.macfancontrol.helper.v2.plist"
 cp "$ROOT_DIR/AppIcon.icns" "$PIPELINE_ROOT/AppIcon.icns"
 printf 'keep-existing-output\n' > "$PIPELINE_ROOT/MacFanControl.app/sentinel"
 

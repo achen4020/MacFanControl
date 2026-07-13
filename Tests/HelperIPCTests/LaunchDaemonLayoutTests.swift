@@ -4,9 +4,9 @@ final class LaunchDaemonLayoutTests: XCTestCase {
     func testLaunchDaemonUsesBundleProgramAndMachService() throws {
         let plist = try loadPlist()
 
-        XCTAssertEqual(plist["Label"] as? String, "com.macfancontrol.helper")
+        XCTAssertEqual(plist["Label"] as? String, "com.macfancontrol.helper.v2")
         XCTAssertEqual(plist["BundleProgram"] as? String, "Contents/Resources/MacFanControlHelper")
-        XCTAssertEqual((plist["MachServices"] as? [String: Bool])?["com.macfancontrol.helper"], true)
+        XCTAssertEqual((plist["MachServices"] as? [String: Bool])?["com.macfancontrol.helper.v2"], true)
         XCTAssertEqual(plist["RunAtLoad"] as? Bool, true)
         XCTAssertEqual(plist["KeepAlive"] as? Bool, true)
     }
@@ -30,7 +30,7 @@ final class LaunchDaemonLayoutTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let url = repositoryRoot.appendingPathComponent("Helper/com.macfancontrol.helper.plist")
+        let url = repositoryRoot.appendingPathComponent("Helper/com.macfancontrol.helper.v2.plist")
         let data = try Data(contentsOf: url)
         return try XCTUnwrap(
             PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]

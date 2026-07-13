@@ -16,9 +16,19 @@ final class LegacyHelperRemovalTests: XCTestCase {
                 arguments: [
                     "bootout",
                     "system",
+                    "/Library/LaunchDaemons/com.macfancontrol.helper.plist"
+                ]
+            ),
+            .execute(
+                executable: "/bin/launchctl",
+                arguments: [
+                    "bootout",
+                    "system",
                     "/Library/LaunchDaemons/com.macfancontrol.smchelper.plist"
                 ]
             ),
+            .remove("/Library/LaunchDaemons/com.macfancontrol.helper.plist"),
+            .remove("/Library/PrivilegedHelperTools/com.macfancontrol.helper"),
             .remove("/Library/LaunchDaemons/com.macfancontrol.smchelper.plist"),
             .remove("/Library/PrivilegedHelperTools/com.macfancontrol.smchelper"),
             .remove("/var/run/com.macfancontrol.smchelper.sock")
@@ -36,7 +46,7 @@ final class LegacyHelperRemovalTests: XCTestCase {
         let result = remover.remove()
 
         XCTAssertTrue(result.success)
-        XCTAssertEqual(recorder.operations.filter(\.isRemoval).count, 3)
+        XCTAssertEqual(recorder.operations.filter(\.isRemoval).count, 5)
     }
 
     func testFatalBootoutFailureDoesNotDeleteAnything() {
@@ -63,7 +73,7 @@ final class LegacyHelperRemovalTests: XCTestCase {
 
         XCTAssertFalse(result.success)
         XCTAssertEqual(result.error, "legacy_file_removal_failed")
-        XCTAssertEqual(recorder.operations.filter(\.isRemoval).count, 3)
+        XCTAssertEqual(recorder.operations.filter(\.isRemoval).count, 5)
     }
 
     func testConcreteFileRemoverDeletesDanglingSymbolicLink() throws {

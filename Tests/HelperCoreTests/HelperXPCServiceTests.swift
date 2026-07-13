@@ -77,8 +77,9 @@ final class HelperXPCServiceTests: XCTestCase {
 
     func testLegacyRemovalForwardsAuthenticatedXPCRequest() {
         let remover = ForwardingFakeLegacyRemover()
+        let hardware = ForwardingFakeHardware()
         let xpcService = HelperXPCService(
-            service: HelperService(hardware: ForwardingFakeHardware()),
+            service: HelperService(hardware: hardware),
             legacyRemover: remover
         )
 
@@ -87,6 +88,23 @@ final class HelperXPCServiceTests: XCTestCase {
             XCTAssertNil(error)
         }
         XCTAssertEqual(remover.callCount, 1)
+        XCTAssertEqual(hardware.resetWrites, [0])
+    }
+
+    func testLegacyRemovalStopsWhenFanResetFails() {
+        let remover = ForwardingFakeLegacyRemover()
+        let hardware = ForwardingFakeHardware()
+        hardware.resetFails = true
+        let xpcService = HelperXPCService(
+            service: HelperService(hardware: hardware),
+            legacyRemover: remover
+        )
+
+        xpcService.removeLegacyHelper { success, error in
+            XCTAssertFalse(success)
+            XCTAssertEqual(error, "hardware_reset_failed:fans=0")
+        }
+        XCTAssertEqual(remover.callCount, 0)
     }
 }
 
@@ -110,6 +128,7 @@ private final class ForwardingFakeHardware: FanHardwareControlling {
     )
     let temperatureSnapshots = [HelperTemperatureSnapshot(key: "TC0P", name: "CPU", value: 52.5)]
     var readFails = false
+    var resetFails = false
     var speedWrites: [Int] = []
     var resetWrites: [Int] = []
 
@@ -120,7 +139,10 @@ private final class ForwardingFakeHardware: FanHardwareControlling {
     func targetRPM(index: Int) throws -> Int? { try checkRead(); return snapshot.targetRPM }
     func mode(index: Int) throws -> Int? { try checkRead(); return snapshot.mode }
     func setFanSpeed(index: Int, rpm: Int) throws { speedWrites.append(rpm) }
-    func resetFanToAuto(index: Int) throws { resetWrites.append(index) }
+    func resetFanToAuto(index: Int) throws {
+        if resetFails { throw ForwardingTestError.resetFailed }
+        resetWrites.append(index)
+    }
     func temperatures() throws -> [HelperTemperatureSnapshot] { try checkRead(); return temperatureSnapshots }
 
     private func checkRead() throws {
@@ -130,4 +152,5 @@ private final class ForwardingFakeHardware: FanHardwareControlling {
 
 private enum ForwardingTestError: Error {
     case readFailed
+    case resetFailed
 }

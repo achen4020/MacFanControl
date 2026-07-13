@@ -223,7 +223,7 @@ final class SMCHelperClient: FanControlProvider, @unchecked Sendable {
     private func helperCodeSigningRequirement() throws -> String {
 #if DEBUG && LOCAL_UNSIGNED_XPC
         NSLog("MacFanControl is using explicit local unsigned XPC mode")
-        return #"identifier "com.macfancontrol.helper""#
+        return #"identifier "com.macfancontrol.helper.v2""#
 #else
         let ownTeamID = try CurrentCodeSignature.teamIdentifier()
         return try CodeSigningRequirement(

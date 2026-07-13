@@ -68,7 +68,7 @@ listener.delegate = listenerDelegate
 
 signal(SIGTERM, SIG_IGN)
 signal(SIGINT, SIG_IGN)
-let terminationQueue = DispatchQueue(label: "com.macfancontrol.helper.termination")
+let terminationQueue = DispatchQueue(label: "com.macfancontrol.helper.v2.termination")
 let terminationSignals = [SIGTERM, SIGINT].map { signalNumber in
     let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: terminationQueue)
     source.setEventHandler {
