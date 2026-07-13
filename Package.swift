@@ -37,6 +37,11 @@ let package = Package(
                 .linkedFramework("Carbon")
             ]
         ),
+        .target(
+            name: "HelperIPC",
+            dependencies: [],
+            path: "HelperIPC"
+        ),
         // 主应用
         .executableTarget(
             name: "MacFanControl",
@@ -72,6 +77,11 @@ let package = Package(
             name: "ScreenshotKitTests",
             dependencies: ["ScreenshotKit"],
             path: "Tests/ScreenshotKitTests"
+        ),
+        .testTarget(
+            name: "HelperIPCTests",
+            dependencies: ["HelperIPC"],
+            path: "Tests/HelperIPCTests"
         )
     ]
 )
