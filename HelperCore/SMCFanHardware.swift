@@ -1,57 +1,62 @@
 import HelperIPC
 import SMCKit
 
-public final class SMCFanHardware: FanHardwareControlling {
-    private let manager: SMCManager
+public protocol SMCManaging: AnyObject {
+    func readFanCount() throws -> Int
+    func readFanSpeed(index: Int) throws -> Int?
+    func readFanMinSpeed(index: Int) throws -> Int?
+    func readFanMaxSpeed(index: Int) throws -> Int?
+    func readFanTargetSpeed(index: Int) throws -> Int?
+    func readFanMode(index: Int) throws -> Int?
+    func setFanSpeed(index: Int, speed: Int) throws
+    func resetFanToAuto(index: Int) throws
+    func readAllTemperatureSensors() throws -> [SMCTemperatureSensor]
+}
 
-    public init(manager: SMCManager = .shared) {
+extension SMCManager: SMCManaging {}
+
+public final class SMCFanHardware: FanHardwareControlling {
+    private let manager: SMCManaging
+
+    public init(manager: SMCManaging = SMCManager.shared) {
         self.manager = manager
     }
 
-    public func fanCount() -> Int {
-        try? manager.open()
-        return manager.getFanCount()
+    public func fanCount() throws -> Int {
+        try manager.readFanCount()
     }
 
-    public func currentRPM(index: Int) -> Int? {
-        try? manager.open()
-        return manager.getFanSpeed(index: index)
+    public func currentRPM(index: Int) throws -> Int? {
+        try manager.readFanSpeed(index: index)
     }
 
-    public func minimumRPM(index: Int) -> Int? {
-        try? manager.open()
-        return manager.getFanMinSpeed(index: index)
+    public func minimumRPM(index: Int) throws -> Int? {
+        try manager.readFanMinSpeed(index: index)
     }
 
-    public func maximumRPM(index: Int) -> Int? {
-        try? manager.open()
-        return manager.getFanMaxSpeed(index: index)
+    public func maximumRPM(index: Int) throws -> Int? {
+        try manager.readFanMaxSpeed(index: index)
     }
 
-    public func targetRPM(index: Int) -> Int? {
-        try? manager.open()
-        return manager.getFanTargetSpeed(index: index)
+    public func targetRPM(index: Int) throws -> Int? {
+        try manager.readFanTargetSpeed(index: index)
     }
 
-    public func mode(index: Int) -> Int? {
-        try? manager.open()
-        return manager.getFanMode(index: index)
+    public func mode(index: Int) throws -> Int? {
+        try manager.readFanMode(index: index)
     }
 
     public func setFanSpeed(index: Int, rpm: Int) throws {
-        try manager.open()
         try manager.setFanSpeed(index: index, speed: rpm)
     }
 
     public func resetFanToAuto(index: Int) throws {
-        try manager.open()
         try manager.resetFanToAuto(index: index)
     }
 
-    public func temperatures() -> [HelperTemperatureSnapshot] {
-        try? manager.open()
-        return manager.getAllTemperatureSensors().map { sensor in
-            HelperTemperatureSnapshot(key: sensor.key, name: sensor.key, value: sensor.value)
+    public func temperatures() throws -> [HelperTemperatureSnapshot] {
+        try manager.readAllTemperatureSensors().map { sensor in
+            HelperTemperatureSnapshot(key: sensor.key, name: sensor.name, value: sensor.value)
         }
     }
 }

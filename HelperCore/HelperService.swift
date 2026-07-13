@@ -2,15 +2,23 @@ import Foundation
 import HelperIPC
 
 public protocol FanHardwareControlling: AnyObject {
-    func fanCount() -> Int
-    func currentRPM(index: Int) -> Int?
-    func minimumRPM(index: Int) -> Int?
-    func maximumRPM(index: Int) -> Int?
-    func targetRPM(index: Int) -> Int?
-    func mode(index: Int) -> Int?
+    func fanCount() throws -> Int
+    func currentRPM(index: Int) throws -> Int?
+    func minimumRPM(index: Int) throws -> Int?
+    func maximumRPM(index: Int) throws -> Int?
+    func targetRPM(index: Int) throws -> Int?
+    func mode(index: Int) throws -> Int?
     func setFanSpeed(index: Int, rpm: Int) throws
     func resetFanToAuto(index: Int) throws
-    func temperatures() -> [HelperTemperatureSnapshot]
+    func temperatures() throws -> [HelperTemperatureSnapshot]
+}
+
+public enum HelperServiceError: String, Error, Equatable, Sendable {
+    case invalidFan = "invalid_fan"
+    case invalidRPM = "invalid_rpm"
+    case hardwareReadFailed = "hardware_read_failed"
+    case hardwareWriteFailed = "hardware_write_failed"
+    case hardwareResetFailed = "hardware_reset_failed"
 }
 
 public struct HelperOperationResult: Equatable, Sendable {
@@ -33,23 +41,36 @@ public final class HelperService {
 
     public func setFanSpeed(index: Int, rpm: Int) -> HelperOperationResult {
         locked {
-            let ranges = (0..<hardware.fanCount()).map { fanIndex in
-                let minimum = hardware.minimumRPM(index: fanIndex) ?? 0
-                let maximum = hardware.maximumRPM(index: fanIndex) ?? 0
-                return min(minimum, maximum)...max(minimum, maximum)
+            let ranges: [ClosedRange<Int>]
+            do {
+                let count = try hardware.fanCount()
+                ranges = try (0..<count).map { fanIndex in
+                    guard
+                        let minimum = try hardware.minimumRPM(index: fanIndex),
+                        let maximum = try hardware.maximumRPM(index: fanIndex),
+                        minimum > 0,
+                        maximum > 0,
+                        minimum <= maximum
+                    else {
+                        throw HelperServiceError.hardwareReadFailed
+                    }
+                    return minimum...maximum
+                }
+            } catch {
+                return .failure(HelperServiceError.hardwareReadFailed.rawValue)
             }
 
             switch FanRequestValidator.validate(index: index, rpm: rpm, ranges: ranges) {
             case .invalidFan:
-                return .failure("Invalid fan index: \(index)")
+                return .failure(HelperServiceError.invalidFan.rawValue)
             case .invalidRPM:
-                return .failure("RPM \(rpm) is outside the allowed range")
+                return .failure(HelperServiceError.invalidRPM.rawValue)
             case .valid:
                 do {
                     try hardware.setFanSpeed(index: index, rpm: rpm)
                     return .success
                 } catch {
-                    return .failure(error.localizedDescription)
+                    return .failure(HelperServiceError.hardwareWriteFailed.rawValue)
                 }
             }
         }
@@ -57,53 +78,85 @@ public final class HelperService {
 
     public func resetFanToAuto(index: Int) -> HelperOperationResult {
         locked {
-            guard (0..<hardware.fanCount()).contains(index) else {
-                return .failure("Invalid fan index: \(index)")
+            let count: Int
+            do {
+                count = try hardware.fanCount()
+            } catch {
+                return .failure(HelperServiceError.hardwareReadFailed.rawValue)
+            }
+            guard (0..<count).contains(index) else {
+                return .failure(HelperServiceError.invalidFan.rawValue)
             }
             do {
                 try hardware.resetFanToAuto(index: index)
                 return .success
             } catch {
-                return .failure(error.localizedDescription)
+                return .failure("\(HelperServiceError.hardwareResetFailed.rawValue):fans=\(index)")
             }
         }
     }
 
     public func resetAllFansToAuto() -> HelperOperationResult {
         locked {
-            var errors: [String] = []
-            for index in 0..<hardware.fanCount() {
+            let count: Int
+            do {
+                count = try hardware.fanCount()
+            } catch {
+                return .failure(HelperServiceError.hardwareReadFailed.rawValue)
+            }
+            var failedFans: [Int] = []
+            for index in 0..<count {
                 do {
                     try hardware.resetFanToAuto(index: index)
                 } catch {
-                    errors.append("Fan \(index): \(error.localizedDescription)")
+                    failedFans.append(index)
                 }
             }
-            return errors.isEmpty ? .success : .failure(errors.joined(separator: "; "))
+            return failedFans.isEmpty
+                ? .success
+                : .failure("\(HelperServiceError.hardwareResetFailed.rawValue):fans=\(failedFans.map(String.init).joined(separator: ","))")
         }
     }
 
-    public func fanSnapshots() -> [HelperFanSnapshot] {
-        locked {
-            (0..<hardware.fanCount()).map { index in
-                HelperFanSnapshot(
-                    index: index,
-                    currentRPM: hardware.currentRPM(index: index) ?? 0,
-                    minimumRPM: hardware.minimumRPM(index: index) ?? 0,
-                    maximumRPM: hardware.maximumRPM(index: index) ?? 0,
-                    targetRPM: hardware.targetRPM(index: index),
-                    mode: hardware.mode(index: index) ?? 0
-                )
+    public func fanSnapshots() throws -> [HelperFanSnapshot] {
+        try locked {
+            do {
+                return try (0..<hardware.fanCount()).map { index in
+                    guard
+                        let currentRPM = try hardware.currentRPM(index: index),
+                        let minimumRPM = try hardware.minimumRPM(index: index),
+                        let maximumRPM = try hardware.maximumRPM(index: index),
+                        let mode = try hardware.mode(index: index)
+                    else {
+                        throw HelperServiceError.hardwareReadFailed
+                    }
+                    return HelperFanSnapshot(
+                        index: index,
+                        currentRPM: currentRPM,
+                        minimumRPM: minimumRPM,
+                        maximumRPM: maximumRPM,
+                        targetRPM: try hardware.targetRPM(index: index),
+                        mode: mode
+                    )
+                }
+            } catch {
+                throw HelperServiceError.hardwareReadFailed
             }
         }
     }
 
-    public func temperatures() -> [HelperTemperatureSnapshot] {
-        locked { hardware.temperatures() }
+    public func temperatures() throws -> [HelperTemperatureSnapshot] {
+        try locked {
+            do {
+                return try hardware.temperatures()
+            } catch {
+                throw HelperServiceError.hardwareReadFailed
+            }
+        }
     }
 
     public func temperaturePayload() throws -> Data {
-        try HelperPayloadCodec.encodeTemperatures(temperatures())
+        try HelperPayloadCodec.encodeTemperatures(try temperatures())
     }
 
     private func locked<T>(_ operation: () throws -> T) rethrows -> T {

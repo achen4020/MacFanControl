@@ -90,7 +90,7 @@ let package = Package(
         ),
         .testTarget(
             name: "HelperCoreTests",
-            dependencies: ["MacFanControlHelperCore", "HelperIPC"],
+            dependencies: ["MacFanControlHelperCore", "HelperIPC", "SMCKit"],
             path: "Tests/HelperCoreTests"
         )
     ]

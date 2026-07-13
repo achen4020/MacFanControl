@@ -62,6 +62,18 @@ public struct SMCValue {
     public init() {}
 }
 
+public struct SMCTemperatureSensor: Equatable, Sendable {
+    public let key: String
+    public let name: String
+    public let value: Double
+
+    public init(key: String, name: String, value: Double) {
+        self.key = key
+        self.name = name
+        self.value = value
+    }
+}
+
 // MARK: - SMC Constants
 
 /// SMC selector commands
@@ -269,65 +281,57 @@ public class SMCManager {
 
     /// Get number of fans
     public func getFanCount() -> Int {
-        do {
-            let value = try readKey(SMCKeys.fanCount)
-            return Int(value.bytes.0)
-        } catch {
-            return 0
-        }
+        (try? readFanCount()) ?? 0
+    }
+
+    public func readFanCount() throws -> Int {
+        let value = try readKey(SMCKeys.fanCount)
+        return Int(value.bytes.0)
     }
 
     /// Get fan speed in RPM
     public func getFanSpeed(index: Int) -> Int? {
-        do {
-            let key = SMCKeys.fanActualSpeed(index)
-            let value = try readKey(key)
-            return value.toFanSpeed()
-        } catch {
-            return nil
-        }
+        try? readFanSpeed(index: index)
+    }
+
+    public func readFanSpeed(index: Int) throws -> Int? {
+        try readKey(SMCKeys.fanActualSpeed(index)).toFanSpeed()
     }
 
     /// Get minimum fan speed
     public func getFanMinSpeed(index: Int) -> Int? {
-        do {
-            let key = SMCKeys.fanMinSpeed(index)
-            let value = try readKey(key)
-            return value.toFanSpeed()
-        } catch {
-            return nil
-        }
+        try? readFanMinSpeed(index: index)
+    }
+
+    public func readFanMinSpeed(index: Int) throws -> Int? {
+        try readKey(SMCKeys.fanMinSpeed(index)).toFanSpeed()
     }
 
     /// Get maximum fan speed
     public func getFanMaxSpeed(index: Int) -> Int? {
-        do {
-            let key = SMCKeys.fanMaxSpeed(index)
-            let value = try readKey(key)
-            return value.toFanSpeed()
-        } catch {
-            return nil
-        }
+        try? readFanMaxSpeed(index: index)
+    }
+
+    public func readFanMaxSpeed(index: Int) throws -> Int? {
+        try readKey(SMCKeys.fanMaxSpeed(index)).toFanSpeed()
     }
 
     /// Get target fan speed
     public func getFanTargetSpeed(index: Int) -> Int? {
-        do {
-            let value = try readKey(SMCKeys.fanTargetSpeed(index))
-            return value.toFanSpeed()
-        } catch {
-            return nil
-        }
+        try? readFanTargetSpeed(index: index)
+    }
+
+    public func readFanTargetSpeed(index: Int) throws -> Int? {
+        try readKey(SMCKeys.fanTargetSpeed(index)).toFanSpeed()
     }
 
     /// Get fan control mode
     public func getFanMode(index: Int) -> Int? {
-        do {
-            let value = try readKey(SMCKeys.fanMode(index))
-            return Int(value.bytes.0)
-        } catch {
-            return nil
-        }
+        try? readFanMode(index: index)
+    }
+
+    public func readFanMode(index: Int) throws -> Int? {
+        Int(try readKey(SMCKeys.fanMode(index)).bytes.0)
     }
 
     /// Set fan speed (requires elevated privileges on Apple Silicon)
@@ -370,16 +374,19 @@ public class SMCManager {
 
     /// Lock fan control back (return to system control)
     public func lockAppleSiliconFanControl() {
+        do {
+            try lockAppleSiliconFanControlThrowing()
+            print("✅ Apple Silicon fan control locked (Ftst=0)")
+        } catch {
+            // Preserve the legacy best-effort public API.
+        }
+    }
+
+    private func lockAppleSiliconFanControlThrowing() throws {
         var value = SMCValue()
         value.dataSize = 1
         value.bytes.0 = 0
-
-        do {
-            try writeKey(SMCKeys.fanTestMode, value: value)
-            print("✅ Apple Silicon fan control locked (Ftst=0)")
-        } catch {
-            // Ignore errors
-        }
+        try writeKey(SMCKeys.fanTestMode, value: value)
     }
 
     /// Set fan to manual or automatic mode
@@ -412,14 +419,14 @@ public class SMCManager {
     public func resetFanToAuto(index: Int) throws {
         try setFanManualMode(index: index, manual: false)
         // Also lock Apple Silicon fan control
-        lockAppleSiliconFanControl()
+        try lockAppleSiliconFanControlThrowing()
     }
 
     // MARK: - Discovery
 
     /// Get all available temperature sensors
-    public func getAllTemperatureSensors() -> [(key: String, value: Double)] {
-        var sensors: [(String, Double)] = []
+    public func getAllTemperatureSensors() -> [SMCTemperatureSensor] {
+        var sensors: [SMCTemperatureSensor] = []
 
         let keys = [
             ("CPU Die", SMCKeys.cpuDie),
@@ -437,11 +444,16 @@ public class SMCManager {
 
         for (name, key) in keys {
             if let temp = readTemperature(key: key), temp > 0 && temp < 150 {
-                sensors.append((name, temp))
+                sensors.append(SMCTemperatureSensor(key: key, name: name, value: temp))
             }
         }
 
         return sensors
+    }
+
+    public func readAllTemperatureSensors() throws -> [SMCTemperatureSensor] {
+        try open()
+        return getAllTemperatureSensors()
     }
 }
 

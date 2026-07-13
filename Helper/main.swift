@@ -190,8 +190,8 @@ class HelperTool: NSObject, HelperToolProtocol, NSXPCListenerDelegate {
             try SMCManager.shared.open()
             let sensors = SMCManager.shared.getAllTemperatureSensors()
             let result = NSMutableDictionary()
-            for (name, value) in sensors {
-                result[name] = NSNumber(value: value)
+            for sensor in sensors {
+                result[sensor.name] = NSNumber(value: sensor.value)
             }
             reply(result)
         } catch {

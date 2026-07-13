@@ -527,7 +527,7 @@ class FanController: ObservableObject {
         let allSensors = smc.getAllTemperatureSensors()
         sensorCount = allSensors.count
         temperatures = allSensors.map { sensor in
-            TemperatureInfo(id: sensor.key, name: sensor.key, value: sensor.value)
+            TemperatureInfo(id: sensor.key, name: sensor.name, value: sensor.value)
         }
     }
 
