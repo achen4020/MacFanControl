@@ -27,10 +27,20 @@ let package = Package(
             dependencies: [],
             path: "Core"
         ),
+        // 截图、编辑和输出核心
+        .target(
+            name: "ScreenshotKit",
+            dependencies: [],
+            path: "ScreenshotKit",
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("Carbon")
+            ]
+        ),
         // 主应用
         .executableTarget(
             name: "MacFanControl",
-            dependencies: ["SMCKit", "MacFanControlCore"],
+            dependencies: ["SMCKit", "MacFanControlCore", "ScreenshotKit"],
             path: "Sources",
             exclude: ["Info.plist", "MacFanControl.entitlements"],
             linkerSettings: [
@@ -57,6 +67,11 @@ let package = Package(
             name: "MacFanControlCoreTests",
             dependencies: ["MacFanControlCore"],
             path: "Tests/MacFanControlCoreTests"
+        ),
+        .testTarget(
+            name: "ScreenshotKitTests",
+            dependencies: ["ScreenshotKit"],
+            path: "Tests/ScreenshotKitTests"
         )
     ]
 )
