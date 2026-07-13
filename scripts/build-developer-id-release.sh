@@ -18,7 +18,22 @@ fail() {
 
 IDENTITIES="$(security find-identity -v -p codesigning)" \
     || fail "无法读取钥匙串中的代码签名身份"
-if ! grep -F -q -- "$DEVELOPER_ID_APPLICATION" <<< "$IDENTITIES"; then
+DEVELOPER_IDENTITY_PATTERN='^[[:space:]]*[0-9]+\)[[:space:]]+([A-F0-9]{40})[[:space:]]+"(Developer ID Application:[^"]+)"[[:space:]]*$'
+IDENTITY_MATCHED=false
+while IFS= read -r identity_line; do
+    if [[ "$identity_line" =~ $DEVELOPER_IDENTITY_PATTERN ]]; then
+        identity_sha="${BASH_REMATCH[1]}"
+        identity_name="${BASH_REMATCH[2]}"
+        if [[ "$DEVELOPER_ID_APPLICATION" == "$identity_sha" \
+            || "$DEVELOPER_ID_APPLICATION" == "$identity_name" ]]; then
+            IDENTITY_MATCHED=true
+            break
+        fi
+    fi
+done <<< "$IDENTITIES"
+unset IDENTITIES identity_line identity_sha identity_name
+
+if [[ "$IDENTITY_MATCHED" != true ]]; then
     fail "钥匙串中找不到指定的 Developer ID Application 签名身份"
 fi
 

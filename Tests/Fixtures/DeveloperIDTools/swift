@@ -1,0 +1,7 @@
+#!/bin/bash
+
+set -euo pipefail
+
+: "${FAKE_SWIFT_MARKER:?}"
+printf 'called\n' > "$FAKE_SWIFT_MARKER"
+exit 86
