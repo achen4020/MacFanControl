@@ -217,30 +217,63 @@ class NetworkMonitor {
             cursor = interface.ifa_next
         }
 
-        var counters: [String: NetworkInterfaceCounters] = [:]
-        cursor = firstAddress
-
-        while let current = cursor {
-            let interface = current.pointee
-            let name = String(cString: interface.ifa_name)
-            let family = interface.ifa_addr.map { Int32($0.pointee.sa_family) }
-
-            if activeInterfaces.contains(name),
-               family == AF_LINK,
-               let rawData = interface.ifa_data {
-                let data = rawData.assumingMemoryBound(to: if_data.self).pointee
-                counters[name] = NetworkInterfaceCounters(
-                    receivedBytes: data.ifi_ibytes,
-                    sentBytes: data.ifi_obytes
-                )
-            }
-
-            cursor = interface.ifa_next
+        guard let counters = capture64BitCounters(for: activeInterfaces) else {
+            return nil
         }
 
         return NetworkTransferSnapshot(
             timestamp: Date(),
             counters: counters
         )
+    }
+
+    private func capture64BitCounters(
+        for interfaceNames: Set<String>
+    ) -> [String: NetworkInterfaceCounters]? {
+        let namesByIndex = Dictionary(uniqueKeysWithValues: interfaceNames.compactMap { name in
+            let index = if_nametoindex(name)
+            return index == 0 ? nil : (index, name)
+        })
+        guard !namesByIndex.isEmpty else { return [:] }
+
+        var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
+        var length = 0
+        guard sysctl(&mib, u_int(mib.count), nil, &length, nil, 0) == 0,
+              length > 0 else {
+            return nil
+        }
+
+        var buffer = [UInt8](repeating: 0, count: length)
+        guard sysctl(&mib, u_int(mib.count), &buffer, &length, nil, 0) == 0 else {
+            return nil
+        }
+
+        var counters: [String: NetworkInterfaceCounters] = [:]
+        buffer.withUnsafeBytes { rawBuffer in
+            guard let bufferStart = rawBuffer.baseAddress else { return }
+            var offset = 0
+
+            while offset + MemoryLayout<if_msghdr>.size <= length {
+                let messageStart = bufferStart.advanced(by: offset)
+                let header = messageStart.assumingMemoryBound(to: if_msghdr.self).pointee
+                let messageLength = Int(header.ifm_msglen)
+                guard messageLength > 0, offset + messageLength <= length else { break }
+
+                if Int32(header.ifm_type) == RTM_IFINFO2,
+                   messageLength >= MemoryLayout<if_msghdr2>.size {
+                    let info = messageStart.assumingMemoryBound(to: if_msghdr2.self).pointee
+                    if let name = namesByIndex[UInt32(info.ifm_index)] {
+                        counters[name] = NetworkInterfaceCounters(
+                            receivedBytes: info.ifm_data.ifi_ibytes,
+                            sentBytes: info.ifm_data.ifi_obytes
+                        )
+                    }
+                }
+
+                offset += messageLength
+            }
+        }
+
+        return counters
     }
 }

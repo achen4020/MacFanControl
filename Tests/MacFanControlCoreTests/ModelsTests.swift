@@ -191,25 +191,48 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(NetworkSpeed.between(previous: base, current: invalidTime), .zero)
     }
 
-    func testNetworkSpeed_handlesPerInterfaceUInt32CounterWrap() {
+    func testNetworkSpeed_handlesCountersBeyondUInt32Range() {
         let previous = NetworkTransferSnapshot(
             timestamp: Date(timeIntervalSince1970: 10),
             counters: [
                 "en0": NetworkInterfaceCounters(
-                    receivedBytes: UInt32.max - 999,
-                    sentBytes: UInt32.max - 499
+                    receivedBytes: 5_000_000_000,
+                    sentBytes: 6_000_000_000
                 )
             ]
         )
         let current = NetworkTransferSnapshot(
             timestamp: Date(timeIntervalSince1970: 12),
-            counters: ["en0": NetworkInterfaceCounters(receivedBytes: 1_000, sentBytes: 500)]
+            counters: [
+                "en0": NetworkInterfaceCounters(
+                    receivedBytes: 5_000_002_000,
+                    sentBytes: 6_000_001_000
+                )
+            ]
         )
 
         let speed = NetworkSpeed.between(previous: previous, current: current)
 
         XCTAssertEqual(speed.downloadBytesPerSecond, 1_000)
         XCTAssertEqual(speed.uploadBytesPerSecond, 500)
+    }
+
+    func testNetworkSpeed_rejectsHighValueCounterReset() {
+        let previous = NetworkTransferSnapshot(
+            timestamp: Date(timeIntervalSince1970: 10),
+            counters: [
+                "en0": NetworkInterfaceCounters(
+                    receivedBytes: 5_000_000_000,
+                    sentBytes: 6_000_000_000
+                )
+            ]
+        )
+        let reset = NetworkTransferSnapshot(
+            timestamp: Date(timeIntervalSince1970: 12),
+            counters: ["en0": NetworkInterfaceCounters(receivedBytes: 0, sentBytes: 0)]
+        )
+
+        XCTAssertEqual(NetworkSpeed.between(previous: previous, current: reset), .zero)
     }
 
     func testPhysicalNetworkInterfaceName_requiresEnFollowedByDigits() {

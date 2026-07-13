@@ -233,12 +233,12 @@ public struct StorageUsage: Equatable {
     }
 }
 
-/// UInt32 counters exposed by `getifaddrs` for one interface.
+/// 64-bit cumulative counters for one interface.
 public struct NetworkInterfaceCounters: Equatable {
-    public let receivedBytes: UInt32
-    public let sentBytes: UInt32
+    public let receivedBytes: UInt64
+    public let sentBytes: UInt64
 
-    public init(receivedBytes: UInt32, sentBytes: UInt32) {
+    public init(receivedBytes: UInt64, sentBytes: UInt64) {
         self.receivedBytes = receivedBytes
         self.sentBytes = sentBytes
     }
@@ -319,17 +319,9 @@ public struct NetworkSpeed: Equatable {
         )
     }
 
-    private static func counterDelta(previous: UInt32, current: UInt32) -> UInt64? {
-        if current >= previous {
-            return UInt64(current - previous)
-        }
-
-        // `if_data` counters are UInt32. Only treat a high-to-low transition as
-        // wraparound; an ordinary decrease means that the interface counter reset.
-        guard previous > UInt32.max / 2, current < UInt32.max / 2 else {
-            return nil
-        }
-        return UInt64(UInt32.max - previous) + 1 + UInt64(current)
+    private static func counterDelta(previous: UInt64, current: UInt64) -> UInt64? {
+        guard current >= previous else { return nil }
+        return current - previous
     }
 
     public static func format(bytesPerSecond: Double) -> String {
