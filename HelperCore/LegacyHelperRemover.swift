@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 
 public struct LegacyCommandResult: Equatable, Sendable {
@@ -90,11 +91,18 @@ public final class ProcessLegacyCommandExecutor: LegacyCommandExecuting {
         process.standardOutput = outputPipe
         process.standardError = outputPipe
         try process.run()
+        let outputGroup = DispatchGroup()
+        let collector = LegacyPipeOutputCollector()
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            collector.store(outputPipe.fileHandleForReading.readDataToEndOfFile())
+            outputGroup.leave()
+        }
         process.waitUntilExit()
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        outputGroup.wait()
         return LegacyCommandResult(
             terminationStatus: process.terminationStatus,
-            output: String(decoding: data, as: UTF8.self)
+            output: String(decoding: collector.data, as: UTF8.self)
         )
     }
 }
@@ -107,7 +115,27 @@ public final class FileManagerLegacyFileRemover: LegacyFileRemoving {
     }
 
     public func removeItemIfPresent(atPath path: String) throws {
-        guard fileManager.fileExists(atPath: path) else { return }
-        try fileManager.removeItem(atPath: path)
+        do {
+            try fileManager.removeItem(atPath: path)
+        } catch let error as CocoaError where error.code == .fileNoSuchFile {
+            return
+        }
+    }
+}
+
+private final class LegacyPipeOutputCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedData = Data()
+
+    var data: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedData
+    }
+
+    func store(_ data: Data) {
+        lock.lock()
+        storedData = data
+        lock.unlock()
     }
 }

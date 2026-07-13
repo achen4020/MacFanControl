@@ -65,6 +65,30 @@ final class LegacyHelperRemovalTests: XCTestCase {
         XCTAssertEqual(result.error, "legacy_file_removal_failed")
         XCTAssertEqual(recorder.operations.filter(\.isRemoval).count, 3)
     }
+
+    func testConcreteFileRemoverDeletesDanglingSymbolicLink() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let link = temporaryDirectory.appendingPathComponent("legacy.sock")
+        try FileManager.default.createSymbolicLink(
+            at: link,
+            withDestinationURL: temporaryDirectory.appendingPathComponent("missing-target")
+        )
+
+        try FileManagerLegacyFileRemover().removeItemIfPresent(atPath: link.path)
+
+        XCTAssertThrowsError(try FileManager.default.attributesOfItem(atPath: link.path))
+    }
+
+    func testConcreteFileRemoverIgnoresMissingFile() throws {
+        let missingPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .path
+
+        XCTAssertNoThrow(try FileManagerLegacyFileRemover().removeItemIfPresent(atPath: missingPath))
+    }
 }
 
 private final class LegacyOperationRecorder: LegacyCommandExecuting, LegacyFileRemoving {

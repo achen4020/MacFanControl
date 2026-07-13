@@ -92,7 +92,7 @@ struct MenuBarContentView: View {
             }
 
             // Helper 安装提示
-            if fanController.isAppleSilicon && fanController.helperRegistrationState != .enabled {
+            if fanController.isAppleSilicon && !fanController.helperServicePresentation.isSuccess {
                 HelperInstallView()
                     .environmentObject(fanController)
             }
@@ -197,7 +197,7 @@ struct HelperInstallView: View {
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
-                Text(fanController.helperRegistrationState.message)
+                Text(fanController.helperServicePresentation.message)
                     .font(.caption)
                     .fontWeight(.medium)
             }
@@ -210,8 +210,8 @@ struct HelperInstallView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-            } else if let actionTitle = fanController.helperRegistrationState.actionTitle {
-                Button(actionTitle) {
+            } else if let action = fanController.helperServicePresentation.action {
+                Button(action.title) {
                     fanController.performHelperRegistrationAction()
                 }
                 .buttonStyle(.borderedProminent)

@@ -56,6 +56,7 @@ class FanController: ObservableObject {
     private var autoControlTimer: Timer?
     private var isApplyingAutoControl = false
     private let autoControlApplyGate = ExclusiveOperationGate()
+    private let helperLifecycleGate = HelperLifecycleGate()
     private var isUpdatingFanInfo = false
     private var isUpdatingTemperatures = false
     private var lastAutoTargetPercentage: Double = -1
@@ -163,36 +164,47 @@ class FanController: ObservableObject {
 
     // MARK: - Helper Installation
 
+    var helperServicePresentation: HelperServicePresentation {
+        HelperServicePresentation(
+            registrationState: helperRegistrationState,
+            isConnectionAvailable: canControlFans
+        )
+    }
+
     func installHelper() {
-        guard !isInstallingHelper else { return }
+        Task { @MainActor [weak self] in
+            guard let self, await self.helperLifecycleGate.tryBegin() else { return }
+            self.isInstallingHelper = true
+            self.lastError = nil
 
-        isInstallingHelper = true
-        lastError = nil
-
-        do {
-            try helperServiceManager.register()
-            refreshHelperRegistrationState()
-            isInstallingHelper = false
-            if helperRegistrationState == .enabled {
-                retryHelperConnection()
+            var shouldRetry = false
+            do {
+                try self.helperServiceManager.register()
+                self.refreshHelperRegistrationState()
+                shouldRetry = self.helperRegistrationState == .enabled
+            } catch {
+                self.refreshHelperRegistrationState()
+                self.lastError = .helperInstallFailed(error.localizedDescription)
             }
-        } catch {
-            isInstallingHelper = false
-            refreshHelperRegistrationState()
-            lastError = .helperInstallFailed(error.localizedDescription)
+            self.isInstallingHelper = false
+            await self.helperLifecycleGate.end()
+
+            if shouldRetry {
+                self.retryHelperConnection()
+            }
         }
     }
 
     func performHelperRegistrationAction() {
         refreshHelperRegistrationState()
-        switch helperRegistrationState {
-        case .notRegistered:
+        switch helperServicePresentation.action {
+        case .register:
             installHelper()
-        case .requiresApproval:
+        case .openApprovalSettings:
             helperServiceManager.openApprovalSettings()
-        case .notFound:
+        case .retryConnection:
             retryHelperConnection()
-        case .enabled:
+        case nil:
             break
         }
     }
@@ -205,44 +217,57 @@ class FanController: ObservableObject {
     }
 
     func retryHelperConnection() {
-        refreshHelperRegistrationState()
-        let state = helperRegistrationState
-        let client = smcHelper
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            let attempted = await HelperConnectionRetryCoordinator.retry(
+            guard let self, await self.helperLifecycleGate.tryBegin() else { return }
+            self.isInstallingHelper = true
+            self.refreshHelperRegistrationState()
+            let state = self.helperRegistrationState
+            let client = self.smcHelper
+            let connected = await HelperConnectionRetryCoordinator.retry(
                 for: state,
                 disconnect: { client.disconnect() },
-                request: { [weak self] in await self?.updateFanInfo() }
+                request: { !(await client.getFanData()).isEmpty }
             )
-            if attempted {
+            self.refreshHelperRegistrationState()
+            self.canControlFans = connected && self.helperRegistrationState == .enabled
+            if connected {
+                self.lastError = nil
+                await self.updateFanInfo()
                 await self.startAutoControlIfAvailable()
+            } else {
+                self.lastError = .helperInstallFailed("风扇控制服务当前无法连接")
             }
+            self.isInstallingHelper = false
+            await self.helperLifecycleGate.end()
         }
     }
 
     func uninstallHelper() async {
-        guard !isInstallingHelper else { return }
+        guard await helperLifecycleGate.tryBegin() else { return }
         isInstallingHelper = true
         lastError = nil
 
-        let legacyCleanupSucceeded = await smcHelper.removeLegacyHelper()
-        do {
-            try await helperServiceManager.unregister()
+        let result = await HelperUninstallCoordinator.uninstall(
+            cleanup: { [smcHelper] in await smcHelper.removeLegacyHelper() },
+            unregister: { [helperServiceManager] in try await helperServiceManager.unregister() }
+        )
+        switch result {
+        case .success:
             smcHelper.disconnect()
             refreshHelperRegistrationState()
             canControlFans = false
             isAutoControlEnabled = false
             autoControlTimer?.invalidate()
             autoControlTimer = nil
-            if !legacyCleanupSucceeded {
-                lastError = .helperInstallFailed("新服务已卸载，但旧版服务清理失败")
-            }
-        } catch {
+        case .cleanupFailed:
             refreshHelperRegistrationState()
-            lastError = .helperInstallFailed(error.localizedDescription)
+            lastError = .helperInstallFailed("旧版服务清理失败，当前服务已保留，请重试")
+        case .unregisterFailed:
+            refreshHelperRegistrationState()
+            lastError = .helperInstallFailed("无法注销风扇控制服务，请重试")
         }
         isInstallingHelper = false
+        await helperLifecycleGate.end()
     }
 
     // MARK: - Monitoring

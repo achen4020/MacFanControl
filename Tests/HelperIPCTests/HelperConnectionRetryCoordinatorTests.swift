@@ -5,13 +5,16 @@ final class HelperConnectionRetryCoordinatorTests: XCTestCase {
     func testNotFoundDisconnectsAndAttemptsConnection() async {
         let recorder = RetryRecorder()
 
-        let attempted = await HelperConnectionRetryCoordinator.retry(
+        let connected = await HelperConnectionRetryCoordinator.retry(
             for: .notFound,
             disconnect: { await recorder.recordDisconnect() },
-            request: { await recorder.recordRequest() }
+            request: {
+                await recorder.recordRequest()
+                return false
+            }
         )
 
-        XCTAssertTrue(attempted)
+        XCTAssertFalse(connected)
         let snapshot = await recorder.snapshot()
         XCTAssertEqual(snapshot, .init(disconnects: 1, requests: 1))
     }
@@ -19,13 +22,16 @@ final class HelperConnectionRetryCoordinatorTests: XCTestCase {
     func testEnabledDisconnectsAndAttemptsConnection() async {
         let recorder = RetryRecorder()
 
-        let attempted = await HelperConnectionRetryCoordinator.retry(
+        let connected = await HelperConnectionRetryCoordinator.retry(
             for: .enabled,
             disconnect: { await recorder.recordDisconnect() },
-            request: { await recorder.recordRequest() }
+            request: {
+                await recorder.recordRequest()
+                return true
+            }
         )
 
-        XCTAssertTrue(attempted)
+        XCTAssertTrue(connected)
         let snapshot = await recorder.snapshot()
         XCTAssertEqual(snapshot, .init(disconnects: 1, requests: 1))
     }
@@ -34,13 +40,16 @@ final class HelperConnectionRetryCoordinatorTests: XCTestCase {
         for state in [HelperRegistrationState.notRegistered, .requiresApproval] {
             let recorder = RetryRecorder()
 
-            let attempted = await HelperConnectionRetryCoordinator.retry(
+            let connected = await HelperConnectionRetryCoordinator.retry(
                 for: state,
                 disconnect: { await recorder.recordDisconnect() },
-                request: { await recorder.recordRequest() }
+                request: {
+                    await recorder.recordRequest()
+                    return true
+                }
             )
 
-            XCTAssertFalse(attempted)
+            XCTAssertFalse(connected)
             let snapshot = await recorder.snapshot()
             XCTAssertEqual(snapshot, .init(disconnects: 0, requests: 0))
         }

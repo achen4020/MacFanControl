@@ -259,34 +259,36 @@ struct AboutView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                if fanController.helperRegistrationState == .enabled {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text("风扇控制服务已启用")
-                            .font(.caption)
-                    }
+                if fanController.isAppleSilicon {
+                    if fanController.helperServicePresentation.isSuccess {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text(fanController.helperServicePresentation.message)
+                                .font(.caption)
+                        }
 
-                    Button("卸载服务") {
-                        showUninstallAlert = true
-                    }
-                    .font(.caption)
-                    .foregroundColor(.red)
-                    .disabled(isUninstallingHelper)
-                } else {
-                    HStack {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.red)
-                        Text(fanController.helperRegistrationState.message)
-                            .font(.caption)
-                    }
-
-                    if let actionTitle = fanController.helperRegistrationState.actionTitle {
-                        Button(actionTitle) {
-                            fanController.performHelperRegistrationAction()
+                        Button("卸载服务") {
+                            showUninstallAlert = true
                         }
                         .font(.caption)
-                        .disabled(fanController.isInstallingHelper)
+                        .foregroundColor(.red)
+                        .disabled(isUninstallingHelper || fanController.isInstallingHelper)
+                    } else {
+                        HStack {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.red)
+                            Text(fanController.helperServicePresentation.message)
+                                .font(.caption)
+                        }
+
+                        if let action = fanController.helperServicePresentation.action {
+                            Button(action.title) {
+                                fanController.performHelperRegistrationAction()
+                            }
+                            .font(.caption)
+                            .disabled(fanController.isInstallingHelper)
+                        }
                     }
                 }
             }
