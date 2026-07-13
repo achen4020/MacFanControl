@@ -40,7 +40,10 @@ let package = Package(
         .target(
             name: "HelperIPC",
             dependencies: [],
-            path: "HelperIPC"
+            path: "HelperIPC",
+            linkerSettings: [
+                .linkedFramework("Security")
+            ]
         ),
         .target(
             name: "MacFanControlHelperCore",
@@ -63,13 +66,14 @@ let package = Package(
         // Helper Tool
         .executableTarget(
             name: "MacFanControlHelper",
-            dependencies: ["SMCKit"],
+            dependencies: ["SMCKit", "HelperIPC", "MacFanControlHelperCore"],
             path: "Helper",
             exclude: ["Info.plist", "com.macfancontrol.helper.plist"],
-            sources: ["main.swift", "HelperProtocol.swift"],
+            sources: ["main.swift"],
             linkerSettings: [
                 .unsafeFlags(["-framework", "IOKit"]),
-                .unsafeFlags(["-framework", "CoreFoundation"])
+                .unsafeFlags(["-framework", "CoreFoundation"]),
+                .linkedFramework("Security")
             ]
         ),
         // 单元测试

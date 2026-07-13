@@ -11,13 +11,8 @@
         <true/>
     </dict>
 
-    <key>Program</key>
-    <string>/Library/PrivilegedHelperTools/com.macfancontrol.helper</string>
-
-    <key>ProgramArguments</key>
-    <array>
-        <string>/Library/PrivilegedHelperTools/com.macfancontrol.helper</string>
-    </array>
+    <key>BundleProgram</key>
+    <string>Contents/Resources/MacFanControlHelper</string>
 
     <key>RunAtLoad</key>
     <true/>
