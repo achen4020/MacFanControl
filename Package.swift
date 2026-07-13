@@ -53,7 +53,7 @@ let package = Package(
         // 主应用
         .executableTarget(
             name: "MacFanControl",
-            dependencies: ["SMCKit", "MacFanControlCore", "ScreenshotKit"],
+            dependencies: ["SMCKit", "MacFanControlCore", "ScreenshotKit", "HelperIPC"],
             path: "Sources",
             exclude: ["Info.plist", "MacFanControl.entitlements"],
             linkerSettings: [

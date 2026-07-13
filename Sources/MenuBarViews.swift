@@ -173,12 +173,7 @@ struct MenuBarContentView: View {
                 Spacer()
 
                 Button("退出") {
-                    // 退出前恢复风扇为自动模式
-                    fanController.resetAllFansToAuto()
-                    // 稍微延迟确保命令执行完成
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        NSApplication.shared.terminate(nil)
-                    }
+                    NSApplication.shared.terminate(nil)
                 }
                 .buttonStyle(.bordered)
             }
@@ -496,7 +491,12 @@ struct FanRow: View {
                     step: 5
                 ) { editing in
                     if !editing {
-                        fanController.setFanSpeedPercentage(fanIndex: fanIndex, percentage: speedPercentage)
+                        Task {
+                            await fanController.setFanSpeedPercentage(
+                                fanIndex: fanIndex,
+                                percentage: speedPercentage
+                            )
+                        }
                     }
                 }
                 .disabled(!fanController.canControlFans)
@@ -581,7 +581,7 @@ struct ProfileSection: View {
                                 fanController.enableAutoControl(profile: balanced)
                             }
                         } else {
-                            fanController.disableAutoControl()
+                            Task { await fanController.disableAutoControl() }
                         }
                     }
                 ))
@@ -593,7 +593,7 @@ struct ProfileSection: View {
             HStack(spacing: 6) {
                 // 系统自动按钮
                 Button {
-                    fanController.disableAutoControl()
+                    Task { await fanController.disableAutoControl() }
                 } label: {
                     VStack(spacing: 4) {
                         Image(systemName: "arrow.counterclockwise")

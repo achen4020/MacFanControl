@@ -36,6 +36,8 @@ struct MacFanControlApp: App {
 
 @MainActor
 final class MacFanControlAppDelegate: NSObject, NSApplicationDelegate {
+    private var terminationReplyPending = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         ScreenCaptureCoordinator.shared.onImageCaptured = { image in
             ScreenshotEditorWindowController.shared.open(image: image)
@@ -48,6 +50,19 @@ final class MacFanControlAppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             ScreenCaptureCoordinator.shared.report(error)
         }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !terminationReplyPending else { return .terminateLater }
+        terminationReplyPending = true
+
+        Task { @MainActor [weak self, weak sender] in
+            _ = await SMCHelperClient.shared.resetAllFansToAuto()
+            guard let self, let sender, self.terminationReplyPending else { return }
+            self.terminationReplyPending = false
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }
 

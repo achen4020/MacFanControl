@@ -300,27 +300,8 @@ struct AboutView: View {
     }
 
     private func uninstallHelper() {
-        isUninstallingHelper = true
-
-        let script = """
-        do shell script "launchctl unload /Library/LaunchDaemons/com.macfancontrol.smchelper.plist 2>/dev/null || true; rm -f /Library/LaunchDaemons/com.macfancontrol.smchelper.plist; rm -f /Library/PrivilegedHelperTools/com.macfancontrol.smchelper; rm -f /var/run/com.macfancontrol.smchelper.sock" with administrator privileges
-        """
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            var error: NSDictionary?
-            if let appleScript = NSAppleScript(source: script) {
-                appleScript.executeAndReturnError(&error)
-            }
-
-            DispatchQueue.main.async {
-                isUninstallingHelper = false
-                // 刷新状态
-                Task { @MainActor in
-                    fanController.needsHelperInstall = true
-                    fanController.canControlFans = false
-                }
-            }
-        }
+        isUninstallingHelper = false
+        fanController.lastError = .helperInstallFailed("服务管理将在 SMAppService 接管后启用")
     }
 }
 

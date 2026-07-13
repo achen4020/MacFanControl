@@ -64,10 +64,10 @@ public protocol TemperatureProvider {
 /// Protocol for fan control operations
 public protocol FanControlProvider: Sendable {
     var isAvailable: Bool { get }
-    func getFanCount() -> Int
-    func getFanData() -> [FanDataSnapshot]
-    func setFanSpeed(_ rpm: Int) -> Bool
-    func resetToAuto() -> Bool
+    func getFanData() async -> [FanDataSnapshot]
+    func setFanSpeed(index: Int, rpm: Int) async -> Bool
+    func resetFanToAuto(index: Int) async -> Bool
+    func resetAllFansToAuto() async -> Bool
 }
 
 /// Snapshot of fan data from a provider

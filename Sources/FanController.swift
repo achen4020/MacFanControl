@@ -173,8 +173,8 @@ class FanController: ObservableObject {
                     self?.needsHelperInstall = false
                     self?.lastError = nil
                     // 重新获取风扇信息
-                    self?.updateFanInfo()
-                    self?.startAutoControlIfAvailable()
+                    await self?.updateFanInfo()
+                    await self?.startAutoControlIfAvailable()
                 } else {
                     self?.lastError = .helperInstallFailed(error ?? "安装失败")
                 }
@@ -197,13 +197,13 @@ class FanController: ObservableObject {
         lastError = nil
 
         updateTemperatures()
-        updateFanInfo()
-        startAutoControlIfAvailable()
+        Task { await updateFanInfo() }
+        Task { await startAutoControlIfAvailable() }
 
         monitorTimer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.updateTemperatures()
-                self?.updateFanInfo()
+                await self?.updateFanInfo()
             }
         }
     }
@@ -216,89 +216,69 @@ class FanController: ObservableObject {
         isMonitoring = false
     }
 
-    private func updateFanInfo() {
+    private func updateFanInfo() async {
         // 防止并发调用堆积
         guard !isUpdatingFanInfo else { return }
         isUpdatingFanInfo = true
 
-        // Capture main-actor-isolated properties before entering background queue
         let currentFans = fans
         let appleSilicon = isAppleSilicon
-        let fanControl = self.fanControl
-        let smc = self.smc
+        defer { isUpdatingFanInfo = false }
+        var newFans: [FanInfo] = []
+        let fanData = await fanControl.getFanData()
+        let controlAvailable = fanControl.isAvailable
 
-        // Move socket I/O off main thread
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
-            var newFans: [FanInfo] = []
-            let controlAvailable = fanControl.isAvailable
+        if !fanData.isEmpty {
+            newFans = fanData.map { data in
+                let existingFan = currentFans.first { $0.id == data.index }
+                return FanInfo(
+                    id: data.index,
+                    currentSpeed: data.currentSpeed,
+                    minSpeed: data.minSpeed,
+                    maxSpeed: data.maxSpeed,
+                    targetSpeed: existingFan?.targetSpeed,
+                    isManualMode: data.mode == 1
+                )
+            }
+            if canControlFans != controlAvailable { canControlFans = controlAvailable }
+            if !fansEqual(fans, newFans) { fans = newFans }
+            await startAutoControlIfAvailable()
+            return
+        }
 
-            if controlAvailable {
-                let fanData = fanControl.getFanData()
-                if !fanData.isEmpty {
-                    for data in fanData {
-                        let existingFan = currentFans.first { $0.id == data.index }
-                        let fan = FanInfo(
-                            id: data.index,
-                            currentSpeed: data.currentSpeed,
-                            minSpeed: data.minSpeed,
-                            maxSpeed: data.maxSpeed,
-                            targetSpeed: existingFan?.targetSpeed,
-                            isManualMode: data.mode == 1
-                        )
-                        newFans.append(fan)
-                    }
-                    DispatchQueue.main.async {
-                        if self.canControlFans != controlAvailable { self.canControlFans = controlAvailable }
-                        if !self.fansEqual(self.fans, newFans) { self.fans = newFans }
-                        self.isUpdatingFanInfo = false
-                        self.startAutoControlIfAvailable()
-                    }
-                    return
-                }
+        // 后备: 使用传统 SMC (Intel Mac)
+        if !appleSilicon {
+            do {
+                try smc.open()
+            } catch {
+                if canControlFans != controlAvailable { canControlFans = controlAvailable }
+                if !fans.isEmpty { fans = [] }
+                return
             }
 
-            // 后备: 使用传统 SMC (Intel Mac)
-            if !appleSilicon {
-                do {
-                    try smc.open()
-                } catch {
-                    DispatchQueue.main.async {
-                        if self.canControlFans != controlAvailable { self.canControlFans = controlAvailable }
-                        if !self.fans.isEmpty { self.fans = [] }
-                        self.isUpdatingFanInfo = false
-                    }
-                    return
-                }
+            let count = smc.getFanCount()
 
-                let count = smc.getFanCount()
+            for i in 0..<count {
+                let current = smc.getFanSpeed(index: i) ?? 0
+                let min = smc.getFanMinSpeed(index: i) ?? 0
+                let max = smc.getFanMaxSpeed(index: i) ?? 6000
 
-                for i in 0..<count {
-                    let current = smc.getFanSpeed(index: i) ?? 0
-                    let min = smc.getFanMinSpeed(index: i) ?? 0
-                    let max = smc.getFanMaxSpeed(index: i) ?? 6000
+                let existingFan = currentFans.first { $0.id == i }
 
-                    let existingFan = currentFans.first { $0.id == i }
-
-                    let fan = FanInfo(
-                        id: i,
-                        currentSpeed: current,
-                        minSpeed: min,
-                        maxSpeed: max,
-                        targetSpeed: existingFan?.targetSpeed,
-                        isManualMode: existingFan?.isManualMode ?? false
-                    )
-                    newFans.append(fan)
-                }
-            }
-
-            DispatchQueue.main.async {
-                if self.canControlFans != controlAvailable { self.canControlFans = controlAvailable }
-                if !self.fansEqual(self.fans, newFans) { self.fans = newFans }
-                self.isUpdatingFanInfo = false
-                self.startAutoControlIfAvailable()
+                newFans.append(FanInfo(
+                    id: i,
+                    currentSpeed: current,
+                    minSpeed: min,
+                    maxSpeed: max,
+                    targetSpeed: existingFan?.targetSpeed,
+                    isManualMode: existingFan?.isManualMode ?? false
+                ))
             }
         }
+
+        if canControlFans != controlAvailable { canControlFans = controlAvailable }
+        if !fansEqual(fans, newFans) { fans = newFans }
+        await startAutoControlIfAvailable()
     }
 
     /// Compare two fan arrays without triggering @Published
@@ -534,7 +514,7 @@ class FanController: ObservableObject {
     // MARK: - Fan Control
 
     @discardableResult
-    func setFanSpeed(fanIndex: Int, speed: Int) -> Bool {
+    func setFanSpeed(fanIndex: Int, speed: Int) async -> Bool {
         guard canControlFans else {
             lastError = .helperNotInstalled
             return false
@@ -547,7 +527,7 @@ class FanController: ObservableObject {
 
         // 使用 FanControlProvider
         if fanControl.isAvailable {
-            if fanControl.setFanSpeed(clampedSpeed) {
+            if await fanControl.setFanSpeed(index: fan.id, rpm: clampedSpeed) {
                 fans[fanIndex].targetSpeed = clampedSpeed
                 fans[fanIndex].isManualMode = true
                 lastError = nil
@@ -572,22 +552,22 @@ class FanController: ObservableObject {
     }
 
     @discardableResult
-    func setFanSpeedPercentage(fanIndex: Int, percentage: Double) -> Bool {
+    func setFanSpeedPercentage(fanIndex: Int, percentage: Double) async -> Bool {
         guard fanIndex < fans.count else { return false }
 
         let fan = fans[fanIndex]
         let range = fan.maxSpeed - fan.minSpeed
         let speed = fan.minSpeed + Int(Double(range) * percentage / 100.0)
 
-        return setFanSpeed(fanIndex: fanIndex, speed: speed)
+        return await setFanSpeed(fanIndex: fanIndex, speed: speed)
     }
 
-    func resetFanToAuto(fanIndex: Int) {
+    func resetFanToAuto(fanIndex: Int) async {
         guard fanIndex < fans.count else { return }
 
         // 使用 FanControlProvider
         if fanControl.isAvailable {
-            if fanControl.resetToAuto() {
+            if await fanControl.resetFanToAuto(index: fans[fanIndex].id) {
                 fans[fanIndex].targetSpeed = nil
                 fans[fanIndex].isManualMode = false
                 lastError = nil
@@ -608,9 +588,21 @@ class FanController: ObservableObject {
         }
     }
 
-    func resetAllFansToAuto() {
-        for i in 0..<fans.count {
-            resetFanToAuto(fanIndex: i)
+    func resetAllFansToAuto() async {
+        if fanControl.isAvailable {
+            if await fanControl.resetAllFansToAuto() {
+                for index in fans.indices {
+                    fans[index].targetSpeed = nil
+                    fans[index].isManualMode = false
+                }
+                lastError = nil
+            } else {
+                lastError = .fanResetFailed
+            }
+        } else {
+            for i in 0..<fans.count {
+                await resetFanToAuto(fanIndex: i)
+            }
         }
         isAutoControlEnabled = false
         activeProfile = nil
@@ -633,10 +625,10 @@ class FanController: ObservableObject {
             return
         }
 
-        startAutoControlIfAvailable(restartTimer: true)
+        Task { await startAutoControlIfAvailable(restartTimer: true) }
     }
 
-    private func startAutoControlIfAvailable(restartTimer: Bool = false) {
+    private func startAutoControlIfAvailable(restartTimer: Bool = false) async {
         guard isAutoControlEnabled, activeProfile != nil else { return }
 
         guard canControlFans else {
@@ -651,14 +643,14 @@ class FanController: ObservableObject {
             autoControlTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, !self.isApplyingAutoControl else { return }
-                    self.applyAutoControl()
+                    await self.applyAutoControl()
                 }
             }
         }
-        applyAutoControl()
+        await applyAutoControl()
     }
 
-    private func applyAutoControl() {
+    private func applyAutoControl() async {
         guard isAutoControlEnabled,
               canControlFans,
               let profile = activeProfile,
@@ -674,7 +666,7 @@ class FanController: ObservableObject {
 
         var allSucceeded = true
         for i in 0..<fans.count {
-            if !setFanSpeedPercentage(fanIndex: i, percentage: targetPercentage) {
+            if !(await setFanSpeedPercentage(fanIndex: i, percentage: targetPercentage)) {
                 allSucceeded = false
             }
         }
@@ -684,7 +676,7 @@ class FanController: ObservableObject {
         }
     }
 
-    func disableAutoControl() {
+    func disableAutoControl() async {
         isAutoControlEnabled = false
         activeProfile = nil
         lastAutoTargetPercentage = -1
@@ -695,7 +687,7 @@ class FanController: ObservableObject {
             profiles[i].isActive = false
         }
 
-        resetAllFansToAuto()
+        await resetAllFansToAuto()
         saveSettings()
     }
 
@@ -708,7 +700,7 @@ class FanController: ObservableObject {
 
         restore(settings)
         saveSettings()
-        startAutoControlIfAvailable(restartTimer: true)
+        Task { await startAutoControlIfAvailable(restartTimer: true) }
 
         if !canControlFans {
             lastError = .fanControlUnavailable

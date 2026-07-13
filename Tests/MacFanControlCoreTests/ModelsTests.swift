@@ -1,7 +1,42 @@
 import XCTest
 @testable import MacFanControlCore
 
+private actor AsyncFanControlProviderSpy: FanControlProvider {
+    nonisolated let isAvailable = true
+    private(set) var speedRequests: [(index: Int, rpm: Int)] = []
+    private(set) var resetRequests: [Int] = []
+
+    func getFanData() async -> [FanDataSnapshot] { [] }
+
+    func setFanSpeed(index: Int, rpm: Int) async -> Bool {
+        speedRequests.append((index, rpm))
+        return true
+    }
+
+    func resetFanToAuto(index: Int) async -> Bool {
+        resetRequests.append(index)
+        return true
+    }
+
+    func resetAllFansToAuto() async -> Bool { true }
+}
+
 final class ModelsTests: XCTestCase {
+    func testAsyncFanControlProviderTargetsOnlyRequestedFan() async {
+        let provider = AsyncFanControlProviderSpy()
+
+        let setSucceeded = await provider.setFanSpeed(index: 2, rpm: 2_400)
+        let resetSucceeded = await provider.resetFanToAuto(index: 1)
+
+        XCTAssertTrue(setSucceeded)
+        XCTAssertTrue(resetSucceeded)
+
+        let speedRequests = await provider.speedRequests
+        let resetRequests = await provider.resetRequests
+        XCTAssertEqual(speedRequests.map(\.index), [2])
+        XCTAssertEqual(speedRequests.map(\.rpm), [2_400])
+        XCTAssertEqual(resetRequests, [1])
+    }
 
     // MARK: - FanProfile Curve Interpolation
 
