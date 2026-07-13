@@ -1,6 +1,7 @@
 // SystemMonitor.swift - CPU 和内存监控
 
 import Foundation
+import MacFanControlCore
 // MARK: - CPU 负载监测
 
 class CPULoadMonitor {
@@ -130,5 +131,44 @@ class MemoryMonitor {
             total: totalMemory,
             percentage: percentage
         )
+    }
+}
+
+// MARK: - Startup Volume Monitoring
+
+class StorageMonitor {
+    private let fileManager: FileManager
+    private let path: String
+    private let cacheInterval: TimeInterval
+    private var cachedUsage: StorageUsage?
+    private var lastUpdate: Date?
+
+    init(
+        fileManager: FileManager = .default,
+        path: String = "/",
+        cacheInterval: TimeInterval = 30
+    ) {
+        self.fileManager = fileManager
+        self.path = path
+        self.cacheInterval = cacheInterval
+    }
+
+    func getStorageUsage() -> StorageUsage? {
+        if let cachedUsage,
+           let lastUpdate,
+           Date().timeIntervalSince(lastUpdate) < cacheInterval {
+            return cachedUsage
+        }
+
+        guard let attributes = try? fileManager.attributesOfFileSystem(forPath: path),
+              let total = (attributes[.systemSize] as? NSNumber)?.uint64Value,
+              let available = (attributes[.systemFreeSize] as? NSNumber)?.uint64Value,
+              let usage = StorageUsage(total: total, available: available) else {
+            return nil
+        }
+
+        cachedUsage = usage
+        lastUpdate = Date()
+        return usage
     }
 }

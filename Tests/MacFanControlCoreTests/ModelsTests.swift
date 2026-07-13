@@ -123,6 +123,33 @@ final class ModelsTests: XCTestCase {
         )
     }
 
+    // MARK: - StorageUsage
+
+    func testStorageUsage_calculatesUsedCapacityAndPercentage() throws {
+        let usage = try XCTUnwrap(
+            StorageUsage(total: 500_000_000_000, available: 125_000_000_000)
+        )
+
+        XCTAssertEqual(usage.used, 375_000_000_000)
+        XCTAssertEqual(usage.percentage, 75, accuracy: 0.001)
+        XCTAssertEqual(usage.formattedUsed, "375.0 GB")
+        XCTAssertEqual(usage.formattedTotal, "500.0 GB")
+    }
+
+    func testStorageUsage_formatsTerabytes() throws {
+        let usage = try XCTUnwrap(
+            StorageUsage(total: 2_000_000_000_000, available: 500_000_000_000)
+        )
+
+        XCTAssertEqual(usage.formattedUsed, "1.5 TB")
+        XCTAssertEqual(usage.formattedTotal, "2.0 TB")
+    }
+
+    func testStorageUsage_rejectsInvalidCapacity() {
+        XCTAssertNil(StorageUsage(total: 0, available: 0))
+        XCTAssertNil(StorageUsage(total: 100, available: 101))
+    }
+
     // MARK: - FanInfo
 
     func testFanSpeedPercentage() {

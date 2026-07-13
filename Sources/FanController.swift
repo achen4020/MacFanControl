@@ -18,6 +18,8 @@ class FanController: ObservableObject {
     @Published var cpuTemperature: Double = 0
     @Published var maxTemperature: Double = 0
     @Published var gpuTemperature: Double?
+    @Published var ssdTemperature: Double?
+    @Published var storageUsage: StorageUsage?
     @Published var cpuUsage: Double = 0
     @Published var memoryUsage: Double = 0
     @Published var memoryUsed: String = ""
@@ -44,6 +46,7 @@ class FanController: ObservableObject {
     private let fanControl: FanControlProvider
     private let cpuLoadMonitor: CPULoadMonitor
     private let memoryMonitor: MemoryMonitor
+    private let storageMonitor: StorageMonitor
     private let settingsStore = FanControlSettingsStore()
     private var monitorTimer: Timer?
     private var autoControlTimer: Timer?
@@ -59,7 +62,8 @@ class FanController: ObservableObject {
         temperatureProvider: TemperatureProvider = M4TempReader(),
         smcHelper: SMCHelperClient = .shared,
         cpuLoadMonitor: CPULoadMonitor = CPULoadMonitor(),
-        memoryMonitor: MemoryMonitor = MemoryMonitor()
+        memoryMonitor: MemoryMonitor = MemoryMonitor(),
+        storageMonitor: StorageMonitor = StorageMonitor()
     ) {
         self.smc = smc
         self.temperatureProvider = temperatureProvider
@@ -67,6 +71,7 @@ class FanController: ObservableObject {
         self.fanControl = smcHelper
         self.cpuLoadMonitor = cpuLoadMonitor
         self.memoryMonitor = memoryMonitor
+        self.storageMonitor = storageMonitor
         detectPlatform()
         loadSettings()
     }
@@ -325,6 +330,11 @@ class FanController: ObservableObject {
             if memoryTotal != memory.formattedTotal { memoryTotal = memory.formattedTotal }
         }
 
+        let newStorageUsage = storageMonitor.getStorageUsage()
+        if storageUsage != newStorageUsage {
+            storageUsage = newStorageUsage
+        }
+
         // 温度读取移到后台线程 (HID API 调用较重)
         let tempProvider = self.temperatureProvider
         let currentIsM4 = isM4
@@ -338,6 +348,7 @@ class FanController: ObservableObject {
 
                 let newCpuTemp: Double?
                 let newMaxTemp: Double?
+                let newSSDTemp: Double?
                 let newTemps: [TemperatureInfo]?
                 let source: String
                 let count: Int
@@ -350,11 +361,13 @@ class FanController: ObservableObject {
                     }
                     newCpuTemp = Self.extractCPUTemperature(from: readings)
                     newMaxTemp = readings.map({ $0.temperature }).max()
+                    newSSDTemp = readings.first(where: { $0.name == "NAND CH0 temp" })?.temperature
                 } else if currentIsM4 {
                     source = "CPU 负载估算"
                     count = 0
                     newCpuTemp = nil
                     newMaxTemp = nil
+                    newSSDTemp = nil
                     newTemps = nil
                 } else {
                     // M1/M2/M3 fallback to SMC — handled on main thread
@@ -391,6 +404,13 @@ class FanController: ObservableObject {
                     }
                     if let maxT = newMaxTemp, abs(maxT - self.maxTemperature) >= 0.5 {
                         self.maxTemperature = maxT
+                    }
+                    if let ssd = newSSDTemp {
+                        if self.ssdTemperature == nil || abs(ssd - self.ssdTemperature!) >= 0.5 {
+                            self.ssdTemperature = ssd
+                        }
+                    } else if self.ssdTemperature != nil {
+                        self.ssdTemperature = nil
                     }
 
                     // GPU 温度仅在 Intel Mac 上通过 SMC 可用
@@ -493,6 +513,7 @@ class FanController: ObservableObject {
         gpuTemperature = smc.getGPUTemperature()
 
         let allSensors = smc.getAllTemperatureSensors()
+        ssdTemperature = allSensors.first(where: { $0.key == "SSD" })?.value
         sensorCount = allSensors.count
         temperatures = allSensors.map { sensor in
             TemperatureInfo(id: sensor.key, name: sensor.key, value: sensor.value)

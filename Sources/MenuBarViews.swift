@@ -209,7 +209,6 @@ struct HelperInstallView: View {
 
 struct TemperatureSection: View {
     @EnvironmentObject var fanController: FanController
-    @State private var showMoreSensors = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -271,72 +270,34 @@ struct TemperatureSection: View {
                 )
             }
 
-            // Show all detected sensors
-            if !displayableSensors.isEmpty {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showMoreSensors.toggle()
-                    }
-                } label: {
-                    HStack {
-                        Image(systemName: showMoreSensors ? "chevron.down" : "chevron.right")
-                            .font(.caption2)
-                            .frame(width: 12)
-                        Text("更多传感器 (\(displayableSensors.count))")
-                            .font(.caption)
-                        Spacer()
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.secondary)
+            if let ssdTemperature = fanController.ssdTemperature {
+                TemperatureRow(
+                    icon: "internaldrive",
+                    name: "SSD 温度",
+                    temperature: ssdTemperature
+                )
+            }
 
-                if showMoreSensors {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(displayableSensors.prefix(12)) { sensor in
-                            if let displayName = sensor.displayName {
-                                HStack {
-                                    Text(displayName)
-                                        .font(.caption)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text(sensor.formattedValue)
-                                        .font(.caption)
-                                        .monospacedDigit()
-                                        .foregroundColor(sensorColor(sensor.value))
-                                }
-                            }
-                        }
-                        if displayableSensors.count > 12 {
-                            Text("... 还有 \(displayableSensors.count - 12) 个传感器")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.leading, 16)
+            if let storage = fanController.storageUsage {
+                HStack {
+                    Image(systemName: "internaldrive.fill")
+                        .frame(width: 20)
+                    Text("SSD 存储")
+                    Spacer()
+                    Text("\(storage.formattedUsed) / \(storage.formattedTotal) (\(String(format: "%.1f%%", storage.percentage)))")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundColor(storageColor(storage.percentage))
                 }
             }
         }
     }
 
-    private func sensorColor(_ temp: Double) -> Color {
-        if temp >= 80 { return .red }
-        if temp >= 60 { return .orange }
-        if temp >= 45 { return .yellow }
+    private func storageColor(_ percentage: Double) -> Color {
+        if percentage >= 90 { return .red }
+        if percentage >= 75 { return .orange }
+        if percentage >= 50 { return .yellow }
         return .green
-    }
-
-    private var displayableSensors: [TemperatureInfo] {
-        fanController.temperatures
-            .filter(\.isDisplayable)
-            .sorted {
-                let leftCategory = $0.displayCategoryOrder ?? Int.max
-                let rightCategory = $1.displayCategoryOrder ?? Int.max
-                if leftCategory != rightCategory {
-                    return leftCategory < rightCategory
-                }
-                return ($0.displaySortOrder ?? Int.max) < ($1.displaySortOrder ?? Int.max)
-            }
     }
 
     private var memoryColor: Color {

@@ -202,6 +202,37 @@ public enum WarningLevel {
     case critical
 }
 
+/// Capacity usage for the macOS startup volume.
+public struct StorageUsage: Equatable {
+    public let used: UInt64
+    public let available: UInt64
+    public let total: UInt64
+    public let percentage: Double
+
+    public init?(total: UInt64, available: UInt64) {
+        guard total > 0, available <= total else { return nil }
+        self.total = total
+        self.available = available
+        self.used = total - available
+        self.percentage = Double(used) / Double(total) * 100
+    }
+
+    public var formattedUsed: String {
+        Self.format(used)
+    }
+
+    public var formattedTotal: String {
+        Self.format(total)
+    }
+
+    private static func format(_ bytes: UInt64) -> String {
+        if bytes >= 1_000_000_000_000 {
+            return String(format: "%.1f TB", Double(bytes) / 1_000_000_000_000)
+        }
+        return String(format: "%.1f GB", Double(bytes) / 1_000_000_000)
+    }
+}
+
 /// Temperature-based fan curve point
 public struct FanCurvePoint: Codable, Equatable {
     public var temperature: Double
