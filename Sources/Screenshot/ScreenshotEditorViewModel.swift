@@ -13,6 +13,8 @@ final class ScreenshotEditorViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published private(set) var isDirty = false
 
+    private let renderer = ScreenshotRenderer()
+
     init(image: CGImage) {
         self.image = image
         history = ScreenshotHistory(
@@ -82,5 +84,49 @@ final class ScreenshotEditorViewModel: ObservableObject {
 
     func markSaved() {
         isDirty = false
+    }
+
+    func copyToPasteboard() {
+        do {
+            let result = try renderer.render(image: image, state: state)
+            let pasteboardImage = NSImage(
+                cgImage: result,
+                size: CGSize(width: result.width, height: result.height)
+            )
+            NSPasteboard.general.clearContents()
+            guard NSPasteboard.general.writeObjects([pasteboardImage]) else {
+                throw ScreenshotClipboardError.writeFailed
+            }
+            markSaved()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func save() {
+        let panel = NSSavePanel()
+        panel.title = "保存截图"
+        panel.nameFieldStringValue = Self.defaultFileName()
+        panel.allowedContentTypes = [.png, .jpeg]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let result = try renderer.render(image: image, state: state)
+            let format: ScreenshotImageFormat = ["jpg", "jpeg"]
+                .contains(url.pathExtension.lowercased())
+                ? .jpeg(quality: 0.9)
+                : .png
+            try renderer.encode(result, format: format).write(to: url, options: .atomic)
+            markSaved()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private static func defaultFileName() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        return "截图-\(formatter.string(from: Date())).png"
     }
 }

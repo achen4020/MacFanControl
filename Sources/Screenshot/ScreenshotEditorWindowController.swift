@@ -1,4 +1,5 @@
 import AppKit
+import ScreenshotKit
 import SwiftUI
 
 @MainActor
@@ -6,6 +7,7 @@ final class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
     static let shared = ScreenshotEditorWindowController()
 
     private var documents: [NSWindow: ScreenshotEditorViewModel] = [:]
+    private var eventMonitors: [NSWindow: Any] = [:]
 
     func open(image: CGImage) {
         let viewModel = ScreenshotEditorViewModel(image: image)
@@ -18,8 +20,8 @@ final class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
         let view = ScreenshotEditorView(
             viewModel: viewModel,
             onCancel: { [weak window] in window?.performClose(nil) },
-            onCopy: {},
-            onSave: {}
+            onCopy: { [weak viewModel] in viewModel?.copyToPasteboard() },
+            onSave: { [weak viewModel] in viewModel?.save() }
         )
         window.title = "截图编辑器"
         window.contentViewController = NSHostingController(rootView: view)
@@ -28,6 +30,17 @@ final class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
         window.minSize = NSSize(width: 720, height: 520)
         window.center()
         documents[window] = viewModel
+        eventMonitors[window] = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            [weak self, weak window] event in
+            guard let window,
+                  event.window === window,
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+                  event.keyCode == 9 else {
+                return event
+            }
+            self?.openImageFromPasteboard(currentWindow: window)
+            return nil
+        }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -46,7 +59,35 @@ final class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         documents.removeValue(forKey: window)
+        if let monitor = eventMonitors.removeValue(forKey: window) {
+            NSEvent.removeMonitor(monitor)
+        }
         window.contentViewController = nil
         window.delegate = nil
+    }
+
+    private func openImageFromPasteboard(currentWindow: NSWindow) {
+        do {
+            guard let image = NSImage(pasteboard: .general) else {
+                throw ScreenshotClipboardError.noImage
+            }
+            var proposedRect = CGRect(origin: .zero, size: image.size)
+            guard let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
+                throw ScreenshotClipboardError.invalidImage
+            }
+            try ScreenshotClipboardPolicy().validate(width: cgImage.width, height: cgImage.height)
+
+            if documents[currentWindow]?.isDirty == true {
+                let alert = NSAlert()
+                alert.messageText = "打开剪贴板图片？"
+                alert.informativeText = "当前编辑会保留在原窗口，剪贴板图片将在新窗口打开。"
+                alert.addButton(withTitle: "打开新窗口")
+                alert.addButton(withTitle: "取消")
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+            }
+            open(image: cgImage)
+        } catch {
+            documents[currentWindow]?.errorMessage = error.localizedDescription
+        }
     }
 }

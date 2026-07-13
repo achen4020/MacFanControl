@@ -42,6 +42,18 @@ final class ScreenshotRendererTests: XCTestCase {
         XCTAssertEqual(result.height, 40)
     }
 
+    func testClipboardImagePolicyRejectsInvalidAndOversizedImages() {
+        let policy = ScreenshotClipboardPolicy(maximumPixels: 100_000_000)
+
+        XCTAssertNoThrow(try policy.validate(width: 10_000, height: 10_000))
+        XCTAssertThrowsError(try policy.validate(width: 0, height: 100)) { error in
+            XCTAssertEqual(error as? ScreenshotClipboardError, .invalidImage)
+        }
+        XCTAssertThrowsError(try policy.validate(width: 10_001, height: 10_000)) { error in
+            XCTAssertEqual(error as? ScreenshotClipboardError, .imageTooLarge)
+        }
+    }
+
     private func makeSolidImage(width: Int, height: Int) throws -> CGImage {
         let context = try XCTUnwrap(
             CGContext(
