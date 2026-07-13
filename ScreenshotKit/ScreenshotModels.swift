@@ -116,6 +116,69 @@ public enum ScreenshotAnnotation: Equatable, Sendable {
     case pen(id: UUID, points: [CGPoint], style: AnnotationStyle)
     case text(id: UUID, rect: CGRect, value: String, fontSize: CGFloat, style: AnnotationStyle)
     case mosaic(id: UUID, rect: CGRect, blockSize: CGFloat)
+
+    public var id: UUID {
+        switch self {
+        case let .rectangle(id, _, _),
+             let .arrow(id, _, _, _),
+             let .pen(id, _, _),
+             let .text(id, _, _, _, _),
+             let .mosaic(id, _, _):
+            return id
+        }
+    }
+
+    public var bounds: CGRect {
+        switch self {
+        case let .rectangle(_, rect, _),
+             let .text(_, rect, _, _, _),
+             let .mosaic(_, rect, _):
+            return rect.standardized
+        case let .arrow(_, start, end, _):
+            return CGRect(
+                x: min(start.x, end.x),
+                y: min(start.y, end.y),
+                width: abs(end.x - start.x),
+                height: abs(end.y - start.y)
+            )
+        case let .pen(_, points, _):
+            guard let first = points.first else { return .null }
+            return points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { partial, point in
+                partial.union(CGRect(origin: point, size: .zero))
+            }
+        }
+    }
+
+    public func translatedBy(x: CGFloat, y: CGFloat) -> ScreenshotAnnotation {
+        let offset = CGVector(dx: x, dy: y)
+        switch self {
+        case let .rectangle(id, rect, style):
+            return .rectangle(id: id, rect: rect.offsetBy(dx: x, dy: y), style: style)
+        case let .arrow(id, start, end, style):
+            return .arrow(
+                id: id,
+                start: CGPoint(x: start.x + offset.dx, y: start.y + offset.dy),
+                end: CGPoint(x: end.x + offset.dx, y: end.y + offset.dy),
+                style: style
+            )
+        case let .pen(id, points, style):
+            return .pen(
+                id: id,
+                points: points.map { CGPoint(x: $0.x + offset.dx, y: $0.y + offset.dy) },
+                style: style
+            )
+        case let .text(id, rect, value, fontSize, style):
+            return .text(
+                id: id,
+                rect: rect.offsetBy(dx: x, dy: y),
+                value: value,
+                fontSize: fontSize,
+                style: style
+            )
+        case let .mosaic(id, rect, blockSize):
+            return .mosaic(id: id, rect: rect.offsetBy(dx: x, dy: y), blockSize: blockSize)
+        }
+    }
 }
 
 public struct ScreenshotDocumentState: Equatable, Sendable {
@@ -136,6 +199,21 @@ public struct ScreenshotDocumentState: Equatable, Sendable {
     public func withCropRect(_ cropRect: CGRect) -> ScreenshotDocumentState {
         var copy = self
         copy.cropRect = cropRect
+        return copy
+    }
+
+    public func replacing(_ annotation: ScreenshotAnnotation) -> ScreenshotDocumentState {
+        var copy = self
+        guard let index = copy.annotations.firstIndex(where: { $0.id == annotation.id }) else {
+            return copy
+        }
+        copy.annotations[index] = annotation
+        return copy
+    }
+
+    public func removingAnnotation(id: UUID) -> ScreenshotDocumentState {
+        var copy = self
+        copy.annotations.removeAll { $0.id == id }
         return copy
     }
 }
