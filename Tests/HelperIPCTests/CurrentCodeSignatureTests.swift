@@ -26,4 +26,26 @@ final class CurrentCodeSignatureTests: XCTestCase {
             XCTAssertEqual(error as? CurrentCodeSignatureError, .invalidTeamIdentifier)
         }
     }
+
+    func testInvalidTeamIdentifierReturnsStableError() {
+        XCTAssertThrowsError(
+            try CurrentCodeSignature.teamIdentifier(
+                from: [kSecCodeInfoTeamIdentifier as String: "not-a-team"]
+            )
+        ) { error in
+            XCTAssertEqual(error as? CurrentCodeSignatureError, .invalidTeamIdentifier)
+        }
+    }
+
+    func testInvalidCodeStatusReturnsStableError() {
+        let invalidStatus = OSStatus(errSecCSBadObjectFormat)
+
+        XCTAssertThrowsError(try CurrentCodeSignature.validateCode(status: invalidStatus)) { error in
+            XCTAssertEqual(error as? CurrentCodeSignatureError, .codeInvalid(invalidStatus))
+        }
+    }
+
+    func testSuccessfulCodeStatusIsAccepted() {
+        XCTAssertNoThrow(try CurrentCodeSignature.validateCode(status: errSecSuccess))
+    }
 }

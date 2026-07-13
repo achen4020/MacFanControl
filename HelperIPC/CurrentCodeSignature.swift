@@ -3,6 +3,7 @@ import Security
 
 public enum CurrentCodeSignatureError: Error, Equatable, Sendable {
     case copySelfFailed(OSStatus)
+    case codeInvalid(OSStatus)
     case copyStaticCodeFailed(OSStatus)
     case copySigningInformationFailed(OSStatus)
     case missingSigningInformation
@@ -17,6 +18,8 @@ public enum CurrentCodeSignature {
         guard copySelfStatus == errSecSuccess, let currentCode else {
             throw CurrentCodeSignatureError.copySelfFailed(copySelfStatus)
         }
+
+        try validateCode(status: SecCodeCheckValidity(currentCode, [], nil))
 
         var staticCode: SecStaticCode?
         let copyStaticCodeStatus = SecCodeCopyStaticCode(currentCode, [], &staticCode)
@@ -54,5 +57,11 @@ public enum CurrentCodeSignature {
             throw CurrentCodeSignatureError.invalidTeamIdentifier
         }
         return teamIdentifier
+    }
+
+    public static func validateCode(status: OSStatus) throws {
+        guard status == errSecSuccess else {
+            throw CurrentCodeSignatureError.codeInvalid(status)
+        }
     }
 }

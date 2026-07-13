@@ -1,4 +1,5 @@
 import XCTest
+import Security
 @testable import HelperIPC
 
 final class CodeSigningRequirementTests: XCTestCase {
@@ -12,6 +13,23 @@ final class CodeSigningRequirementTests: XCTestCase {
             requirement.text,
             "anchor apple generic and identifier \"com.macfancontrol.app\" and certificate leaf[subject.OU] = \"ABCDE12345\""
         )
+    }
+
+    func testGeneratedRequirementCompilesWithSecurityFramework() throws {
+        let requirement = try CodeSigningRequirement(
+            identifier: "com.macfancontrol.app",
+            teamID: "ABCDE12345"
+        )
+        var compiledRequirement: SecRequirement?
+
+        let status = SecRequirementCreateWithString(
+            requirement.text as CFString,
+            SecCSFlags(),
+            &compiledRequirement
+        )
+
+        XCTAssertEqual(status, errSecSuccess)
+        XCTAssertNotNil(compiledRequirement)
     }
 
     func testRejectsInvalidIdentifiers() {

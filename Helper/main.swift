@@ -38,7 +38,8 @@ private final class HelperListenerDelegate: NSObject, NSXPCListenerDelegate {
 }
 
 private func clientCodeSigningRequirement() throws -> String {
-#if DEBUG
+#if DEBUG && LOCAL_UNSIGNED_XPC
+    NSLog("MacFanControlHelper is using explicit local unsigned XPC mode")
     return #"identifier "com.macfancontrol.app""#
 #else
     let ownTeamID = try CurrentCodeSignature.teamIdentifier()
