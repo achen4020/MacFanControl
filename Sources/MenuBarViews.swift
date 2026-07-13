@@ -2,6 +2,7 @@
 
 import SwiftUI
 import MacFanControlCore
+import ScreenshotKit
 // MARK: - Menu Bar Label (状态栏图标)
 
 struct MenuBarLabel: View {
@@ -48,6 +49,8 @@ struct MenuBarLabel: View {
 
 struct MenuBarContentView: View {
     @EnvironmentObject var fanController: FanController
+    @ObservedObject private var hotKeyManager = GlobalHotKeyManager.shared
+    @ObservedObject private var screenshotCoordinator = ScreenCaptureCoordinator.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -117,6 +120,28 @@ struct MenuBarContentView: View {
             // Error message if any
             if let error = fanController.lastError {
                 Text(error.localizedDescription)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .lineLimit(2)
+            }
+
+            Button {
+                ScreenCaptureCoordinator.shared.startCapture()
+            } label: {
+                HStack {
+                    Image(systemName: "camera.viewfinder")
+                    Text("区域截图")
+                    Spacer()
+                    Text(hotKeyManager.displayText)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+
+            if let error = screenshotCoordinator.lastError {
+                Text(error)
                     .font(.caption)
                     .foregroundColor(.red)
                     .lineLimit(2)

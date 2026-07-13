@@ -3,6 +3,7 @@
 import SwiftUI
 import UserNotifications
 import ServiceManagement
+import ScreenshotKit
 // MARK: - Settings View
 
 struct SettingsView: View {
@@ -21,13 +22,111 @@ struct SettingsView: View {
                     Label("配置", systemImage: "slider.horizontal.3")
                 }
 
+            ScreenshotSettingsView()
+                .tabItem {
+                    Label("截图", systemImage: "camera.viewfinder")
+                }
+
             AboutView()
                 .environmentObject(fanController)
                 .tabItem {
                     Label("关于", systemImage: "info.circle")
                 }
         }
-        .frame(width: 450, height: 300)
+        .frame(width: 450, height: 380)
+    }
+}
+
+struct ScreenshotSettingsView: View {
+    @ObservedObject private var hotKeyManager = GlobalHotKeyManager.shared
+    @State private var hotKey = GlobalHotKeyManager.shared.currentHotKey
+    @State private var errorMessage: String?
+    @State private var hasPermission = CGPreflightScreenCaptureAccess()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            GroupBox(label: Text("快捷键").font(.headline)) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("区域截图")
+                        Spacer()
+                        ScreenshotHotKeyRecorder(hotKey: $hotKey) { value in
+                            replaceHotKey(with: value)
+                        }
+                        .frame(width: 150, height: 30)
+                    }
+                    Text("点击快捷键框后录入新组合，必须包含至少一个修饰键；按 Esc 取消。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Button("恢复默认快捷键") {
+                        do {
+                            try hotKeyManager.restoreDefault()
+                            hotKey = hotKeyManager.currentHotKey
+                            errorMessage = nil
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+
+            GroupBox(label: Text("屏幕录制权限").font(.headline)) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: hasPermission ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundColor(hasPermission ? .green : .orange)
+                        Text(hasPermission ? "已授权，可使用区域截图" : "未授权，区域截图无法读取屏幕画面")
+                    }
+                    HStack {
+                        if !hasPermission {
+                            Button("请求权限") {
+                                _ = CGRequestScreenCaptureAccess()
+                                refreshPermission()
+                            }
+                        }
+                        Button("打开系统设置") {
+                            openScreenCaptureSettings()
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+            Spacer()
+        }
+        .padding()
+        .onAppear {
+            hotKey = hotKeyManager.currentHotKey
+            refreshPermission()
+        }
+    }
+
+    private func replaceHotKey(with value: ScreenshotHotKey) {
+        do {
+            try hotKeyManager.replace(with: value)
+            hotKey = hotKeyManager.currentHotKey
+            errorMessage = nil
+        } catch {
+            hotKey = hotKeyManager.currentHotKey
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func refreshPermission() {
+        hasPermission = CGPreflightScreenCaptureAccess()
+    }
+
+    private func openScreenCaptureSettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+        ) else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 

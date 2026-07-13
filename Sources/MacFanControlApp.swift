@@ -12,6 +12,18 @@ struct MacFanControlApp: App {
         let controller = FanController.shared
         _fanController = StateObject(wrappedValue: controller)
         controller.startMonitoring()
+
+        ScreenCaptureCoordinator.shared.onImageCaptured = { image in
+            ScreenshotEditorWindowController.shared.open(image: image)
+        }
+        GlobalHotKeyManager.shared.onTrigger = {
+            ScreenCaptureCoordinator.shared.startCapture()
+        }
+        do {
+            try GlobalHotKeyManager.shared.start()
+        } catch {
+            ScreenCaptureCoordinator.shared.report(error)
+        }
     }
 
     var body: some Scene {
@@ -98,7 +110,7 @@ class SettingsWindowController: NSObject {
         hostingController = NSHostingController(rootView: AnyView(contentView))
 
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 450, height: 320),
+            contentRect: NSRect(x: 0, y: 0, width: 450, height: 400),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false

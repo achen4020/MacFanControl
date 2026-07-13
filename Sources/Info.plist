@@ -22,6 +22,8 @@
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>用于通过快捷键选择并编辑屏幕区域截图。</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

@@ -93,6 +93,8 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" << 'EOF'
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>用于通过快捷键选择并编辑屏幕区域截图。</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>NSPrincipalClass</key>
