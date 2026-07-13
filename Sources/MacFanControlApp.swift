@@ -57,7 +57,7 @@ final class MacFanControlAppDelegate: NSObject, NSApplicationDelegate {
         terminationReplyPending = true
 
         Task { @MainActor [weak self, weak sender] in
-            _ = await SMCHelperClient.shared.resetAllFansToAuto()
+            await FanController.shared.resetAllFansToAuto()
             guard let self, let sender, self.terminationReplyPending else { return }
             self.terminationReplyPending = false
             sender.reply(toApplicationShouldTerminate: true)

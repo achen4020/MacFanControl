@@ -53,6 +53,7 @@ class FanController: ObservableObject {
     private var monitorTimer: Timer?
     private var autoControlTimer: Timer?
     private var isApplyingAutoControl = false
+    private let autoControlApplyGate = ExclusiveOperationGate()
     private var isUpdatingFanInfo = false
     private var isUpdatingTemperatures = false
     private var lastAutoTargetPercentage: Double = -1
@@ -651,17 +652,22 @@ class FanController: ObservableObject {
     }
 
     private func applyAutoControl() async {
+        guard !isApplyingAutoControl else { return }
         guard isAutoControlEnabled,
               canControlFans,
               let profile = activeProfile,
               !fans.isEmpty else { return }
+        guard autoControlApplyGate.begin() else { return }
 
         isApplyingAutoControl = true
-        defer { isApplyingAutoControl = false }
+        defer {
+            isApplyingAutoControl = false
+            autoControlApplyGate.end()
+        }
 
         let targetPercentage = profile.targetSpeedPercentage(for: cpuTemperature)
 
-        // 只在目标转速变化超过 1% 时才发送命令，避免频繁 socket 通信
+        // 只在目标转速变化超过 1% 时才发送命令，避免频繁 XPC 通信
         guard abs(targetPercentage - lastAutoTargetPercentage) >= 1.0 else { return }
 
         var allSucceeded = true

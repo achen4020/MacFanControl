@@ -2,6 +2,37 @@ import XCTest
 @testable import HelperIPC
 
 final class HelperModelsTests: XCTestCase {
+    func testClientFanSnapshotValidationRejectsImpossibleFanData() {
+        let valid = HelperFanSnapshot(
+            index: 0,
+            currentRPM: 2_000,
+            minimumRPM: 1_000,
+            maximumRPM: 5_000,
+            targetRPM: nil,
+            mode: 0
+        )
+        let invalidIndex = HelperFanSnapshot(
+            index: -1,
+            currentRPM: 2_000,
+            minimumRPM: 1_000,
+            maximumRPM: 5_000,
+            targetRPM: nil,
+            mode: 0
+        )
+        let invalidBounds = HelperFanSnapshot(
+            index: 0,
+            currentRPM: 2_000,
+            minimumRPM: 5_000,
+            maximumRPM: 1_000,
+            targetRPM: nil,
+            mode: 0
+        )
+
+        XCTAssertTrue(valid.isValidForClient)
+        XCTAssertFalse(invalidIndex.isValidForClient)
+        XCTAssertFalse(invalidBounds.isValidForClient)
+    }
+
     func testFanSnapshotsRoundTripThroughCodec() throws {
         let snapshots = [
             HelperFanSnapshot(

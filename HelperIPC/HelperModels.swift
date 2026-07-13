@@ -23,6 +23,14 @@ public struct HelperFanSnapshot: Codable, Equatable, Sendable {
         self.targetRPM = targetRPM
         self.mode = mode
     }
+
+    public var isValidForClient: Bool {
+        index >= 0 &&
+        currentRPM >= 0 &&
+        minimumRPM > 0 &&
+        maximumRPM >= minimumRPM &&
+        (mode == 0 || mode == 1)
+    }
 }
 
 public struct HelperTemperatureSnapshot: Codable, Equatable, Sendable {

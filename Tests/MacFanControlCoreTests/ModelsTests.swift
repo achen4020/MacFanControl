@@ -22,6 +22,23 @@ private actor AsyncFanControlProviderSpy: FanControlProvider {
 }
 
 final class ModelsTests: XCTestCase {
+    func testExclusiveOperationGateRejectsInterleavedEntrancesUntilReleased() async {
+        let gate = ExclusiveOperationGate()
+        XCTAssertTrue(gate.begin())
+
+        let acceptedWhileRunning = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+            for _ in 0..<32 {
+                group.addTask { gate.begin() }
+            }
+            return await group.reduce(into: []) { $0.append($1) }
+        }
+
+        XCTAssertFalse(acceptedWhileRunning.contains(true))
+        gate.end()
+        XCTAssertTrue(gate.begin())
+        gate.end()
+    }
+
     func testAsyncFanControlProviderTargetsOnlyRequestedFan() async {
         let provider = AsyncFanControlProviderSpy()
 

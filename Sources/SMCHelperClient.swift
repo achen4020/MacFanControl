@@ -19,16 +19,15 @@ final class SMCHelperClient: FanControlProvider, @unchecked Sendable {
         }
     }
 
-    private let stateLock = NSLock()
-    private var connection: NSXPCConnection?
-    private var available = false
+    private let connectionCreationLock = NSLock()
+    private let connectionLifecycle = ConnectionLifecycle<NSXPCConnection> { connection in
+        connection.invalidate()
+    }
 
     private init() {}
 
     var isAvailable: Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return available
+        connectionLifecycle.isAvailable
     }
 
     func getFanData() async -> [FanDataSnapshot] {
@@ -38,10 +37,10 @@ final class SMCHelperClient: FanControlProvider, @unchecked Sendable {
             let connection = try connectionForRequest()
             requestConnection = connection
             guard let proxy = connection.remoteObjectProxyWithErrorHandler({ [weak self] _ in
-                self?.clearConnection(connection)
+                self?.invalidateConnection(connection)
                 gate.resolve((nil, "xpc_error", false))
             }) as? HelperToolProtocol else {
-                clearConnection(connection)
+                invalidateConnection(connection)
                 gate.resolve((nil, ClientError.proxyUnavailable.localizedDescription, false))
                 return []
             }
@@ -56,15 +55,21 @@ final class SMCHelperClient: FanControlProvider, @unchecked Sendable {
             timeout: .seconds(2),
             fallback: (nil, "timeout", false)
         )
-        guard didReply, let requestConnection else {
-            if let requestConnection { clearConnection(requestConnection) }
+        guard let requestConnection,
+              connectionLifecycle.acceptReply(from: requestConnection, didReply: didReply) else {
+            return []
+        }
+        guard error == nil, let data,
+              let decodedSnapshots = try? HelperPayloadCodec.decodeFans(data) else {
+            invalidateConnection(requestConnection)
+            return []
+        }
+        let snapshots = decodedSnapshots.filter(\.isValidForClient)
+        guard !snapshots.isEmpty else {
+            invalidateConnection(requestConnection)
             return []
         }
         markRoundTripSuccessful(requestConnection)
-        guard error == nil, let data,
-              let snapshots = try? HelperPayloadCodec.decodeFans(data) else {
-            return []
-        }
         return snapshots.map {
             FanDataSnapshot(
                 index: $0.index,
@@ -101,10 +106,10 @@ final class SMCHelperClient: FanControlProvider, @unchecked Sendable {
             let connection = try connectionForRequest()
             requestConnection = connection
             guard let proxy = connection.remoteObjectProxyWithErrorHandler({ [weak self] _ in
-                self?.clearConnection(connection)
+                self?.invalidateConnection(connection)
                 gate.resolve((nil, "xpc_error", false))
             }) as? HelperToolProtocol else {
-                clearConnection(connection)
+                invalidateConnection(connection)
                 gate.resolve((nil, ClientError.proxyUnavailable.localizedDescription, false))
                 return []
             }
@@ -119,15 +124,16 @@ final class SMCHelperClient: FanControlProvider, @unchecked Sendable {
             timeout: .seconds(2),
             fallback: (nil, "timeout", false)
         )
-        guard didReply, let requestConnection else {
-            if let requestConnection { clearConnection(requestConnection) }
+        guard let requestConnection,
+              connectionLifecycle.acceptReply(from: requestConnection, didReply: didReply) else {
+            return []
+        }
+        guard error == nil, let data,
+              let snapshots = try? HelperPayloadCodec.decodeTemperatures(data) else {
+            invalidateConnection(requestConnection)
             return []
         }
         markRoundTripSuccessful(requestConnection)
-        guard error == nil, let data,
-              let snapshots = try? HelperPayloadCodec.decodeTemperatures(data) else {
-            return []
-        }
         return snapshots
     }
 
@@ -144,10 +150,10 @@ final class SMCHelperClient: FanControlProvider, @unchecked Sendable {
             let connection = try connectionForRequest()
             requestConnection = connection
             guard let proxy = connection.remoteObjectProxyWithErrorHandler({ [weak self] _ in
-                self?.clearConnection(connection)
+                self?.invalidateConnection(connection)
                 gate.resolve((false, "xpc_error", false))
             }) as? HelperToolProtocol else {
-                clearConnection(connection)
+                invalidateConnection(connection)
                 gate.resolve((false, ClientError.proxyUnavailable.localizedDescription, false))
                 return false
             }
@@ -162,19 +168,22 @@ final class SMCHelperClient: FanControlProvider, @unchecked Sendable {
             timeout: .seconds(2),
             fallback: (false, "timeout", false)
         )
-        guard didReply, let requestConnection else {
-            if let requestConnection { clearConnection(requestConnection) }
+        guard let requestConnection,
+              connectionLifecycle.acceptReply(from: requestConnection, didReply: didReply) else {
+            return false
+        }
+        guard error == nil, success else {
+            invalidateConnection(requestConnection)
             return false
         }
         markRoundTripSuccessful(requestConnection)
-        guard error == nil else { return false }
-        return success
+        return true
     }
 
     private func connectionForRequest() throws -> NSXPCConnection {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        if let connection {
+        connectionCreationLock.lock()
+        defer { connectionCreationLock.unlock() }
+        if let connection = connectionLifecycle.current() {
             return connection
         }
 
@@ -185,35 +194,31 @@ final class SMCHelperClient: FanControlProvider, @unchecked Sendable {
         connection.remoteObjectInterface = NSXPCInterface(with: HelperToolProtocol.self)
         connection.interruptionHandler = { [weak self, weak connection] in
             guard let self, let connection else { return }
-            self.clearConnection(connection)
+            self.invalidateConnection(connection)
         }
         connection.invalidationHandler = { [weak self, weak connection] in
             guard let self, let connection else { return }
-            self.clearConnection(connection)
+            self.invalidateConnection(connection)
         }
 
-        let requirement = try helperCodeSigningRequirement()
-        connection.setCodeSigningRequirement(requirement)
+        do {
+            let requirement = try helperCodeSigningRequirement()
+            connection.setCodeSigningRequirement(requirement)
+        } catch {
+            connection.invalidate()
+            throw error
+        }
+        connectionLifecycle.install(connection)
         connection.activate()
-        self.connection = connection
         return connection
     }
 
-    private func clearConnection(_ failedConnection: NSXPCConnection) {
-        stateLock.lock()
-        if connection === failedConnection {
-            connection = nil
-            available = false
-        }
-        stateLock.unlock()
+    private func invalidateConnection(_ failedConnection: NSXPCConnection) {
+        connectionLifecycle.invalidate(failedConnection)
     }
 
     private func markRoundTripSuccessful(_ successfulConnection: NSXPCConnection) {
-        stateLock.lock()
-        if connection === successfulConnection {
-            available = true
-        }
-        stateLock.unlock()
+        connectionLifecycle.markRoundTripSuccessful(successfulConnection)
     }
 
     private func helperCodeSigningRequirement() throws -> String {
