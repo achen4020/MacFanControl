@@ -91,6 +91,25 @@ bash -n scripts/build-developer-id-release.sh
 bash Tests/DeveloperIDReleaseTests.sh
 ```
 
+首次公证前，在终端中交互式创建 `notarytool` 钥匙串配置：
+
+```bash
+xcrun notarytool store-credentials "MacFanControl-Notary" \
+  --apple-id "$APPLE_ID" \
+  --team-id "$DEVELOPMENT_TEAM"
+```
+
+App 专用密码由上述命令交互式读取，只保存在登录钥匙串中，绝不能写入脚本、环境配置、Git 提交或发布产物。完成 Developer ID 构建后，使用钥匙串配置执行公证、票据装订、Gatekeeper 校验和最终打包：
+
+```bash
+./scripts/notarize-release.sh \
+  ./MacFanControl.app \
+  1.1.0 \
+  MacFanControl-Notary
+```
+
+只有 Apple 返回 `Accepted`，且 `stapler` 与 `spctl` 全部验证通过时，脚本才会生成 `MacFanControl_v1.1.0.zip` 和 `MacFanControl_v1.1.0.zip.sha256`。失败不会覆盖同名的已有发布包。
+
 ### 开发模式
 
 ```bash

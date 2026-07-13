@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/build-developer-id-release.sh"
+NOTARIZE_SCRIPT="$ROOT_DIR/scripts/notarize-release.sh"
 INFO_PLIST="$ROOT_DIR/Sources/Info.plist"
 ENTITLEMENTS="$ROOT_DIR/Sources/MacFanControl.entitlements"
 LAUNCHD_PLIST="$ROOT_DIR/Helper/com.macfancontrol.helper.plist"
@@ -167,3 +168,190 @@ fi
     || fail "pre-publish failure damaged the existing output app"
 
 printf 'Developer ID release contract checks passed.\n'
+
+[[ -f "$NOTARIZE_SCRIPT" ]] || fail "missing scripts/notarize-release.sh"
+
+require_notarize_pattern() {
+    local pattern="$1"
+    rg -q -- "$pattern" "$NOTARIZE_SCRIPT" \
+        || fail "missing notarization-script contract: $pattern"
+}
+
+require_notarize_pattern 'set -euo pipefail'
+require_notarize_pattern 'ditto[[:space:]].*--keepParent'
+require_notarize_pattern 'notarytool[[:space:]]+submit'
+require_notarize_pattern '--keychain-profile'
+require_notarize_pattern '--wait'
+require_notarize_pattern '--output-format[[:space:]]+json'
+require_notarize_pattern 'notarytool[[:space:]]+log'
+require_notarize_pattern 'stapler[[:space:]]+staple'
+require_notarize_pattern 'stapler[[:space:]]+validate'
+require_notarize_pattern 'spctl[[:space:]]+--assess[[:space:]]+--type[[:space:]]+execute'
+require_notarize_pattern 'shasum[[:space:]]+-a[[:space:]]+256'
+require_notarize_pattern 'Accepted'
+require_notarize_pattern 'mktemp'
+require_notarize_pattern 'trap'
+
+if rg -qi -- '--password|AC_PASSWORD|APPLE_ID_PASSWORD|NOTARY_PASSWORD' "$NOTARIZE_SCRIPT"; then
+    fail "notarization script must use only a keychain profile"
+fi
+
+expect_notarize_argument_failure() {
+    if bash "$NOTARIZE_SCRIPT" "$@" >/dev/null 2>&1; then
+        fail "notarization script accepted invalid arguments: $*"
+    fi
+}
+
+expect_notarize_argument_failure
+expect_notarize_argument_failure '/missing/MacFanControl.app' '1.2.3'
+expect_notarize_argument_failure '/missing/MacFanControl.app' '1.2.3' 'profile' 'extra'
+expect_notarize_argument_failure '/missing/MacFanControl.app' '../1.2.3' 'profile'
+expect_notarize_argument_failure '/missing/MacFanControl.app' '1.2.3' ''
+
+NOTARY_TEST_DIR="$IDENTITY_TEST_DIR/notary-test"
+NOTARY_TOOLS="$NOTARY_TEST_DIR/tools"
+NOTARY_APP="$NOTARY_TEST_DIR/MacFanControl.app"
+NOTARY_EVENTS="$NOTARY_TEST_DIR/events"
+mkdir -p "$NOTARY_TOOLS" "$NOTARY_APP/Contents"
+printf 'fake plist\n' > "$NOTARY_APP/Contents/Info.plist"
+
+cat > "$NOTARY_TOOLS/ditto" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+printf 'ditto:%s\n' "$*" >> "${FAKE_NOTARY_EVENTS:?}"
+destination="${!#}"
+printf 'fake zip\n' > "$destination"
+EOF
+
+cat > "$NOTARY_TOOLS/xcrun" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+printf 'xcrun:%s\n' "$*" >> "${FAKE_NOTARY_EVENTS:?}"
+if [[ "$1 $2" == 'notarytool submit' ]]; then
+    if [[ -n "${FAKE_NOTARY_RESPONSE:-}" ]]; then
+        printf '%s\n' "$FAKE_NOTARY_RESPONSE"
+    else
+        printf '{"id":"submission-123","status":"%s"}\n' "${FAKE_NOTARY_STATUS:?}"
+    fi
+    [[ "${FAKE_NOTARY_SUBMIT_FAIL:-0}" != '1' ]]
+fi
+EOF
+
+cat > "$NOTARY_TOOLS/spctl" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+printf 'spctl:%s\n' "$*" >> "${FAKE_NOTARY_EVENTS:?}"
+EOF
+
+cat > "$NOTARY_TOOLS/shasum" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+printf 'shasum:%s\n' "$*" >> "${FAKE_NOTARY_EVENTS:?}"
+printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  %s\n' "${!#}"
+EOF
+cat > "$NOTARY_TOOLS/mv" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+destination="${!#}"
+marker="${FAKE_MV_FAILURE_MARKER:-}"
+if [[ "${FAKE_MV_FAIL_SHA_ONCE:-0}" == '1' \
+    && "$destination" == *'.zip.sha256' \
+    && -n "$marker" \
+    && ! -e "$marker" ]]; then
+    : > "$marker"
+    exit 75
+fi
+exec /bin/mv "$@"
+EOF
+chmod +x "$NOTARY_TOOLS/ditto" "$NOTARY_TOOLS/xcrun" \
+    "$NOTARY_TOOLS/spctl" "$NOTARY_TOOLS/shasum" "$NOTARY_TOOLS/mv"
+
+FINAL_ZIP="$NOTARY_TEST_DIR/MacFanControl_v1.2.3.zip"
+FINAL_SHA="$FINAL_ZIP.sha256"
+printf 'old zip\n' > "$FINAL_ZIP"
+printf 'old sha\n' > "$FINAL_SHA"
+: > "$NOTARY_EVENTS"
+
+if PATH="$NOTARY_TOOLS:$PATH" \
+    FAKE_NOTARY_EVENTS="$NOTARY_EVENTS" \
+    FAKE_NOTARY_STATUS='Rejected' \
+    bash "$NOTARIZE_SCRIPT" "$NOTARY_APP" '1.2.3' 'Test-Profile' \
+    >/dev/null 2>&1; then
+    fail "rejected notarization unexpectedly succeeded"
+fi
+[[ "$(cat "$FINAL_ZIP")" == 'old zip' ]] \
+    || fail "rejected notarization damaged the existing zip"
+[[ "$(cat "$FINAL_SHA")" == 'old sha' ]] \
+    || fail "rejected notarization damaged the existing checksum"
+rg -q 'notarytool log submission-123 --keychain-profile Test-Profile' "$NOTARY_EVENTS" \
+    || fail "rejected notarization did not fetch its log"
+if rg -q 'stapler staple|spctl:|shasum:' "$NOTARY_EVENTS"; then
+    fail "rejected notarization continued into publication checks"
+fi
+
+: > "$NOTARY_EVENTS"
+if PATH="$NOTARY_TOOLS:$PATH" \
+    FAKE_NOTARY_EVENTS="$NOTARY_EVENTS" \
+    FAKE_NOTARY_STATUS='Accepted' \
+    FAKE_NOTARY_SUBMIT_FAIL=1 \
+    bash "$NOTARIZE_SCRIPT" "$NOTARY_APP" '1.2.3' 'Test-Profile' \
+    >/dev/null 2>&1; then
+    fail "failed notarytool submission unexpectedly succeeded"
+fi
+rg -q 'notarytool log submission-123 --keychain-profile Test-Profile' "$NOTARY_EVENTS" \
+    || fail "failed submission with an id did not fetch its log"
+
+: > "$NOTARY_EVENTS"
+if PATH="$NOTARY_TOOLS:$PATH" \
+    FAKE_NOTARY_EVENTS="$NOTARY_EVENTS" \
+    FAKE_NOTARY_STATUS='unused' \
+    FAKE_NOTARY_RESPONSE='{"id":"submission-parse-error"}' \
+    bash "$NOTARIZE_SCRIPT" "$NOTARY_APP" '1.2.3' 'Test-Profile' \
+    >/dev/null 2>&1; then
+    fail "unparseable notarization result unexpectedly succeeded"
+fi
+rg -q 'notarytool log submission-parse-error --keychain-profile Test-Profile' "$NOTARY_EVENTS" \
+    || fail "unparseable result with an id did not fetch its log"
+
+: > "$NOTARY_EVENTS"
+MV_FAILURE_MARKER="$NOTARY_TEST_DIR/mv-failed"
+if PATH="$NOTARY_TOOLS:$PATH" \
+    FAKE_NOTARY_EVENTS="$NOTARY_EVENTS" \
+    FAKE_NOTARY_STATUS='Accepted' \
+    FAKE_MV_FAIL_SHA_ONCE=1 \
+    FAKE_MV_FAILURE_MARKER="$MV_FAILURE_MARKER" \
+    bash "$NOTARIZE_SCRIPT" "$NOTARY_APP" '1.2.3' 'Test-Profile' \
+    >/dev/null 2>&1; then
+    fail "partial publication failure unexpectedly succeeded"
+fi
+[[ "$(cat "$FINAL_ZIP")" == 'old zip' ]] \
+    || fail "partial publication failure did not restore the existing zip"
+[[ "$(cat "$FINAL_SHA")" == 'old sha' ]] \
+    || fail "partial publication failure did not restore the existing checksum"
+
+: > "$NOTARY_EVENTS"
+PATH="$NOTARY_TOOLS:$PATH" \
+FAKE_NOTARY_EVENTS="$NOTARY_EVENTS" \
+FAKE_NOTARY_STATUS='Accepted' \
+bash "$NOTARIZE_SCRIPT" "$NOTARY_APP" '1.2.3' 'Test-Profile' >/dev/null
+
+[[ -f "$FINAL_ZIP" && -f "$FINAL_SHA" ]] \
+    || fail "accepted notarization did not publish both artifacts"
+[[ "$(cat "$FINAL_SHA")" \
+    == 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  MacFanControl_v1.2.3.zip' ]] \
+    || fail "checksum file format is not '<sha256><two spaces><filename>'"
+
+submit_line="$(rg -n 'notarytool submit' "$NOTARY_EVENTS" | cut -d: -f1)"
+staple_line="$(rg -n 'stapler staple' "$NOTARY_EVENTS" | cut -d: -f1)"
+validate_line="$(rg -n 'stapler validate' "$NOTARY_EVENTS" | cut -d: -f1)"
+assess_line="$(rg -n 'spctl:--assess --type execute' "$NOTARY_EVENTS" | cut -d: -f1)"
+final_ditto_line="$(rg -n 'ditto:.*--keepParent' "$NOTARY_EVENTS" | tail -1 | cut -d: -f1)"
+checksum_line="$(rg -n 'shasum:-a 256' "$NOTARY_EVENTS" | cut -d: -f1)"
+[[ "$submit_line" -lt "$staple_line" \
+    && "$staple_line" -lt "$validate_line" \
+    && "$validate_line" -lt "$assess_line" \
+    && "$assess_line" -lt "$final_ditto_line" \
+    && "$final_ditto_line" -lt "$checksum_line" ]] \
+    || fail "accepted notarization pipeline ran out of order"
+
+printf 'Developer ID notarization contract checks passed.\n'
