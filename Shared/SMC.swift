@@ -74,6 +74,70 @@ public struct SMCTemperatureSensor: Equatable, Sendable {
     }
 }
 
+public struct SMCTemperatureSensorDescriptor: Equatable, Sendable {
+    public let key: String
+    public let name: String
+
+    public init(key: String, name: String) {
+        self.key = key
+        self.name = name
+    }
+}
+
+public enum SMCTemperatureDiscovery {
+    public static func read(
+        descriptors: [SMCTemperatureSensorDescriptor],
+        readTemperature: (String) throws -> Double?
+    ) throws -> [SMCTemperatureSensor] {
+        var sensors: [SMCTemperatureSensor] = []
+        for descriptor in descriptors {
+            do {
+                if let value = try readTemperature(descriptor.key), value > 0, value < 150 {
+                    sensors.append(SMCTemperatureSensor(
+                        key: descriptor.key,
+                        name: descriptor.name,
+                        value: value
+                    ))
+                }
+            } catch SMCError.smcError {
+                // A key-level SMC error means this optional sensor is unavailable.
+                continue
+            }
+        }
+        return sensors
+    }
+}
+
+public struct SMCTestModePolicy: Sendable {
+    public let requiresTestMode: Bool
+
+    public init(requiresTestMode: Bool) {
+        self.requiresTestMode = requiresTestMode
+    }
+
+    public static var current: SMCTestModePolicy {
+        #if arch(arm64)
+        SMCTestModePolicy(requiresTestMode: true)
+        #else
+        SMCTestModePolicy(requiresTestMode: false)
+        #endif
+    }
+
+    public func unlock(using operation: () throws -> Void) rethrows {
+        try performIfRequired(operation)
+    }
+
+    public func lock(using operation: () throws -> Void) rethrows {
+        try performIfRequired(operation)
+    }
+
+    private func performIfRequired(_ operation: () throws -> Void) rethrows {
+        if requiresTestMode {
+            try operation()
+        }
+    }
+}
+
 // MARK: - SMC Constants
 
 /// SMC selector commands
@@ -239,12 +303,11 @@ public class SMCManager {
 
     /// Read temperature from sensor key (returns Celsius)
     public func readTemperature(key: String) -> Double? {
-        do {
-            let value = try readKey(key)
-            return value.toTemperature()
-        } catch {
-            return nil
-        }
+        try? readTemperatureThrowing(key: key)
+    }
+
+    public func readTemperatureThrowing(key: String) throws -> Double? {
+        try readKey(key).toTemperature()
     }
 
     /// Get CPU temperature (tries multiple keys)
@@ -363,12 +426,12 @@ public class SMCManager {
         value.dataSize = 1
         value.bytes.0 = 1
 
-        do {
+        let policy = SMCTestModePolicy.current
+        try policy.unlock {
             try writeKey(SMCKeys.fanTestMode, value: value)
+        }
+        if policy.requiresTestMode {
             print("✅ Apple Silicon fan control unlocked (Ftst=1)")
-        } catch {
-            // Ftst key might not exist on Intel Macs, which is fine
-            print("ℹ️ Ftst key not available (Intel Mac or not supported)")
         }
     }
 
@@ -386,7 +449,9 @@ public class SMCManager {
         var value = SMCValue()
         value.dataSize = 1
         value.bytes.0 = 0
-        try writeKey(SMCKeys.fanTestMode, value: value)
+        try SMCTestModePolicy.current.lock {
+            try writeKey(SMCKeys.fanTestMode, value: value)
+        }
     }
 
     /// Set fan to manual or automatic mode
@@ -426,35 +491,28 @@ public class SMCManager {
 
     /// Get all available temperature sensors
     public func getAllTemperatureSensors() -> [SMCTemperatureSensor] {
-        var sensors: [SMCTemperatureSensor] = []
-
-        let keys = [
-            ("CPU Die", SMCKeys.cpuDie),
-            ("CPU Proximity", SMCKeys.cpuProximity),
-            ("CPU Core 0", SMCKeys.cpuCore0),
-            ("CPU Core 1", SMCKeys.cpuCore1),
-            ("GPU Die", SMCKeys.gpuDie),
-            ("GPU Proximity", SMCKeys.gpuProximity),
-            ("Memory", SMCKeys.memoryProximity),
-            ("Battery", SMCKeys.batteryTemp),
-            ("SSD", SMCKeys.ssdTemp),
-            ("CPU P-Cluster", SMCKeys.cpuPCluster),
-            ("CPU E-Cluster", SMCKeys.cpuECluster),
-        ]
-
-        for (name, key) in keys {
-            if let temp = readTemperature(key: key), temp > 0 && temp < 150 {
-                sensors.append(SMCTemperatureSensor(key: key, name: name, value: temp))
-            }
-        }
-
-        return sensors
+        (try? readAllTemperatureSensors()) ?? []
     }
 
     public func readAllTemperatureSensors() throws -> [SMCTemperatureSensor] {
-        try open()
-        return getAllTemperatureSensors()
+        try SMCTemperatureDiscovery.read(descriptors: Self.temperatureSensorDescriptors) { key in
+            try readTemperatureThrowing(key: key)
+        }
     }
+
+    private static let temperatureSensorDescriptors = [
+        SMCTemperatureSensorDescriptor(key: SMCKeys.cpuDie, name: "CPU Die"),
+        SMCTemperatureSensorDescriptor(key: SMCKeys.cpuProximity, name: "CPU Proximity"),
+        SMCTemperatureSensorDescriptor(key: SMCKeys.cpuCore0, name: "CPU Core 0"),
+        SMCTemperatureSensorDescriptor(key: SMCKeys.cpuCore1, name: "CPU Core 1"),
+        SMCTemperatureSensorDescriptor(key: SMCKeys.gpuDie, name: "GPU Die"),
+        SMCTemperatureSensorDescriptor(key: SMCKeys.gpuProximity, name: "GPU Proximity"),
+        SMCTemperatureSensorDescriptor(key: SMCKeys.memoryProximity, name: "Memory"),
+        SMCTemperatureSensorDescriptor(key: SMCKeys.batteryTemp, name: "Battery"),
+        SMCTemperatureSensorDescriptor(key: SMCKeys.ssdTemp, name: "SSD"),
+        SMCTemperatureSensorDescriptor(key: SMCKeys.cpuPCluster, name: "CPU P-Cluster"),
+        SMCTemperatureSensorDescriptor(key: SMCKeys.cpuECluster, name: "CPU E-Cluster"),
+    ]
 }
 
 // MARK: - SMC Error

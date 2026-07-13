@@ -44,18 +44,22 @@ public final class HelperService {
             let ranges: [ClosedRange<Int>]
             do {
                 let count = try hardware.fanCount()
-                ranges = try (0..<count).map { fanIndex in
-                    guard
-                        let minimum = try hardware.minimumRPM(index: fanIndex),
-                        let maximum = try hardware.maximumRPM(index: fanIndex),
-                        minimum > 0,
-                        maximum > 0,
-                        minimum <= maximum
-                    else {
-                        throw HelperServiceError.hardwareReadFailed
-                    }
-                    return minimum...maximum
+                guard count >= 0 else {
+                    return .failure(HelperServiceError.hardwareReadFailed.rawValue)
                 }
+                guard (0..<count).contains(index) else {
+                    return .failure(HelperServiceError.invalidFan.rawValue)
+                }
+                guard
+                    let minimum = try hardware.minimumRPM(index: index),
+                    let maximum = try hardware.maximumRPM(index: index),
+                    minimum > 0,
+                    maximum > 0,
+                    minimum <= maximum
+                else {
+                    return .failure(HelperServiceError.hardwareReadFailed.rawValue)
+                }
+                ranges = Array(repeating: minimum...maximum, count: count)
             } catch {
                 return .failure(HelperServiceError.hardwareReadFailed.rawValue)
             }

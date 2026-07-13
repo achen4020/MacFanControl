@@ -101,6 +101,17 @@ final class HelperServiceTests: XCTestCase {
         XCTAssertEqual(hardware.speedWrites, [FanWrite(index: 1, rpm: 3_200)])
     }
 
+    func testValidRequestIgnoresUnrelatedFanRangeReadFailure() {
+        let hardware = FakeFanHardware()
+        hardware.rangeReadFailureIndices = [1]
+        let service = HelperService(hardware: hardware)
+
+        let result = service.setFanSpeed(index: 0, rpm: 2_000)
+
+        XCTAssertEqual(result, HelperOperationResult(success: true, error: nil))
+        XCTAssertEqual(hardware.speedWrites, [FanWrite(index: 0, rpm: 2_000)])
+    }
+
     func testResetAllAttemptsEveryFanAfterFailure() {
         let hardware = FakeFanHardware()
         hardware.reportedFanCount = 3
@@ -216,6 +227,66 @@ final class HelperServiceTests: XCTestCase {
             XCTAssertEqual(error as? HelperServiceError, .hardwareReadFailed)
         }
     }
+
+    func testIntelPolicySkipsTestModeWrite() throws {
+        var writeAttempts = 0
+        let policy = SMCTestModePolicy(requiresTestMode: false)
+
+        try policy.unlock {
+            writeAttempts += 1
+            throw TestError.writeFailed
+        }
+        try policy.lock {
+            writeAttempts += 1
+            throw TestError.writeFailed
+        }
+
+        XCTAssertEqual(writeAttempts, 0)
+    }
+
+    func testAppleSiliconPolicyPropagatesUnlockFailure() {
+        let policy = SMCTestModePolicy(requiresTestMode: true)
+
+        XCTAssertThrowsError(try policy.unlock {
+            throw TestError.writeFailed
+        })
+    }
+
+    func testAppleSiliconPolicyPropagatesLockFailure() {
+        let policy = SMCTestModePolicy(requiresTestMode: true)
+
+        XCTAssertThrowsError(try policy.lock {
+            throw TestError.writeFailed
+        })
+    }
+
+    func testTemperatureDiscoverySkipsUnavailableKeyAndKeepsIdentity() throws {
+        let manager = FakeSMCManager()
+        manager.temperatureDescriptors = [
+            SMCTemperatureSensorDescriptor(key: "MISSING", name: "Missing"),
+            SMCTemperatureSensorDescriptor(key: "TC0P", name: "CPU Proximity"),
+        ]
+        manager.temperatureRead = { key in
+            if key == "MISSING" { throw SMCError.smcError(1) }
+            return 52.5
+        }
+
+        XCTAssertEqual(try SMCFanHardware(manager: manager).temperatures(), [
+            HelperTemperatureSnapshot(key: "TC0P", name: "CPU Proximity", value: 52.5),
+        ])
+    }
+
+    func testTemperatureDiscoveryPropagatesUnderlyingCallFailure() {
+        let manager = FakeSMCManager()
+        manager.temperatureDescriptors = [SMCTemperatureSensorDescriptor(key: "TC0P", name: "CPU Proximity")]
+        manager.temperatureRead = { _ in throw SMCError.callFailed(-1) }
+
+        XCTAssertThrowsError(try SMCFanHardware(manager: manager).temperatures()) { error in
+            guard case SMCError.callFailed(-1) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
 }
 
 private struct FanWrite: Equatable {
@@ -244,11 +315,12 @@ private final class FakeFanHardware: FanHardwareControlling {
     var resetFailureIndices: Set<Int> = []
     var speedWriteError: Error?
     var readError: Error?
+    var rangeReadFailureIndices: Set<Int> = []
 
     func fanCount() throws -> Int { try checkRead(); return reportedFanCount }
     func currentRPM(index: Int) throws -> Int? { try checkRead(); return currentRPMValues[safe: index] }
-    func minimumRPM(index: Int) throws -> Int? { try checkRead(); return minimumRPMValues[safe: index] ?? nil }
-    func maximumRPM(index: Int) throws -> Int? { try checkRead(); return maximumRPMValues[safe: index] ?? nil }
+    func minimumRPM(index: Int) throws -> Int? { try checkRangeRead(index: index); return minimumRPMValues[safe: index] ?? nil }
+    func maximumRPM(index: Int) throws -> Int? { try checkRangeRead(index: index); return maximumRPMValues[safe: index] ?? nil }
     func targetRPM(index: Int) throws -> Int? { try checkRead(); return targetRPMValues[safe: index] ?? nil }
     func mode(index: Int) throws -> Int? { try checkRead(); return modeValues[safe: index] }
 
@@ -267,6 +339,11 @@ private final class FakeFanHardware: FanHardwareControlling {
     private func checkRead() throws {
         if let readError { throw readError }
     }
+
+    private func checkRangeRead(index: Int) throws {
+        try checkRead()
+        if rangeReadFailureIndices.contains(index) { throw TestError.readFailed }
+    }
 }
 
 private extension Array {
@@ -277,6 +354,8 @@ private extension Array {
 
 private final class FakeSMCManager: SMCManaging {
     var temperatureSensors: [SMCTemperatureSensor] = []
+    var temperatureDescriptors: [SMCTemperatureSensorDescriptor] = []
+    var temperatureRead: ((String) throws -> Double?)?
     var readError: Error?
 
     func readFanCount() throws -> Int {
@@ -290,5 +369,13 @@ private final class FakeSMCManager: SMCManaging {
     func readFanMode(index: Int) throws -> Int? { nil }
     func setFanSpeed(index: Int, speed: Int) throws {}
     func resetFanToAuto(index: Int) throws {}
-    func readAllTemperatureSensors() throws -> [SMCTemperatureSensor] { temperatureSensors }
+    func readAllTemperatureSensors() throws -> [SMCTemperatureSensor] {
+        if let temperatureRead {
+            return try SMCTemperatureDiscovery.read(
+                descriptors: temperatureDescriptors,
+                readTemperature: temperatureRead
+            )
+        }
+        return temperatureSensors
+    }
 }
