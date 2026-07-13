@@ -310,6 +310,26 @@ public class SMCManager {
         }
     }
 
+    /// Get target fan speed
+    public func getFanTargetSpeed(index: Int) -> Int? {
+        do {
+            let value = try readKey(SMCKeys.fanTargetSpeed(index))
+            return value.toFanSpeed()
+        } catch {
+            return nil
+        }
+    }
+
+    /// Get fan control mode
+    public func getFanMode(index: Int) -> Int? {
+        do {
+            let value = try readKey(SMCKeys.fanMode(index))
+            return Int(value.bytes.0)
+        } catch {
+            return nil
+        }
+    }
+
     /// Set fan speed (requires elevated privileges on Apple Silicon)
     public func setFanSpeed(index: Int, speed: Int) throws {
         // For Apple Silicon: Try to unlock fan control first

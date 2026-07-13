@@ -42,6 +42,11 @@ let package = Package(
             dependencies: [],
             path: "HelperIPC"
         ),
+        .target(
+            name: "MacFanControlHelperCore",
+            dependencies: ["SMCKit", "HelperIPC"],
+            path: "HelperCore"
+        ),
         // 主应用
         .executableTarget(
             name: "MacFanControl",
@@ -82,6 +87,11 @@ let package = Package(
             name: "HelperIPCTests",
             dependencies: ["HelperIPC"],
             path: "Tests/HelperIPCTests"
+        ),
+        .testTarget(
+            name: "HelperCoreTests",
+            dependencies: ["MacFanControlHelperCore", "HelperIPC"],
+            path: "Tests/HelperCoreTests"
         )
     ]
 )
