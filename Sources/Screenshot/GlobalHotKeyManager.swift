@@ -31,6 +31,11 @@ final class GlobalHotKeyManager: ObservableObject {
     }
 
     func replace(with hotKey: ScreenshotHotKey) throws {
+        if hotKey == currentHotKey {
+            try store.save(hotKey)
+            lastError = nil
+            return
+        }
         try installHandlerIfNeeded()
         try register(hotKey, persist: true)
     }

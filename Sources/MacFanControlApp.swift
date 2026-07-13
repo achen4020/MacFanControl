@@ -6,24 +6,13 @@ import ServiceManagement
 
 @main
 struct MacFanControlApp: App {
+    @NSApplicationDelegateAdaptor(MacFanControlAppDelegate.self) private var appDelegate
     @StateObject private var fanController: FanController
 
     init() {
         let controller = FanController.shared
         _fanController = StateObject(wrappedValue: controller)
         controller.startMonitoring()
-
-        ScreenCaptureCoordinator.shared.onImageCaptured = { image in
-            ScreenshotEditorWindowController.shared.open(image: image)
-        }
-        GlobalHotKeyManager.shared.onTrigger = {
-            ScreenCaptureCoordinator.shared.startCapture()
-        }
-        do {
-            try GlobalHotKeyManager.shared.start()
-        } catch {
-            ScreenCaptureCoordinator.shared.report(error)
-        }
     }
 
     var body: some Scene {
@@ -41,6 +30,23 @@ struct MacFanControlApp: App {
         Settings {
             SettingsView()
                 .environmentObject(fanController)
+        }
+    }
+}
+
+@MainActor
+final class MacFanControlAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        ScreenCaptureCoordinator.shared.onImageCaptured = { image in
+            ScreenshotEditorWindowController.shared.open(image: image)
+        }
+        GlobalHotKeyManager.shared.onTrigger = {
+            ScreenCaptureCoordinator.shared.startCapture()
+        }
+        do {
+            try GlobalHotKeyManager.shared.start()
+        } catch {
+            ScreenCaptureCoordinator.shared.report(error)
         }
     }
 }

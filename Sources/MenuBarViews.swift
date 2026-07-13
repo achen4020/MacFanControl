@@ -126,7 +126,9 @@ struct MenuBarContentView: View {
             }
 
             Button {
-                ScreenCaptureCoordinator.shared.startCapture()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    ScreenCaptureCoordinator.shared.startCapture()
+                }
             } label: {
                 HStack {
                     Image(systemName: "camera.viewfinder")

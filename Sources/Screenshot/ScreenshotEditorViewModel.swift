@@ -11,7 +11,7 @@ final class ScreenshotEditorViewModel: ObservableObject {
     @Published private(set) var history: ScreenshotHistory
     @Published var selectedAnnotationID: UUID?
     @Published var errorMessage: String?
-    @Published private(set) var isDirty = false
+    @Published private(set) var isDirty = true
 
     private let renderer = ScreenshotRenderer()
 
