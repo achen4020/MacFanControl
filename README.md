@@ -1,215 +1,190 @@
 <div align="center">
-  <img src="logo.png" alt="MacFanControl Logo" width="128" style="border-radius: 20px;" />
+  <img src="logo.png" alt="MacFanControl Logo" width="128" />
 
   # Mac 风扇控制 (MacFanControl)
 
-  **Apple Silicon / Intel Mac 的高级风扇监控和控制系统**
+  **原生 macOS 菜单栏硬件监控、风扇控制与区域截图工具**
 
   ![macOS](https://img.shields.io/badge/macOS-13.0+-000000?style=flat-square&logo=apple)
   ![Swift](https://img.shields.io/badge/Swift-5.9+-FA7343?style=flat-square&logo=swift)
+  ![Version](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)
   ![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)
-  ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)
 </div>
 
-<br />
+MacFanControl 是一款不占用 Dock 的 SwiftUI 菜单栏应用。它把温度、风扇、CPU、内存、启动磁盘和网络状态集中在一个面板中，同时提供可持久化的风扇曲线控制和带编辑器的区域截图。
 
-> 专为 M1/M2/M3/M4 系列芯片设计的纯原生 SwiftUI macOS 应用。提供多达 20+ 个 HID 硬件传感器的实时探测和无级别的系统级风扇控制能力。
+## 功能
 
----
+### 硬件与系统监控
 
-## ✨ 核心亮点
+- CPU 温度、可用时的 GPU 温度、SSD 温度和风扇实时转速。
+- CPU 使用率以及内存已用容量、总容量和使用比例。
+- 当前 macOS 启动磁盘的 SSD 存储已用容量、总容量和使用比例。
+- 当前活跃物理网络接口的网络上传下载速度合计。
+- 仅显示能够明确识别的温度传感器，避免展示含义不确定的原始名称。
 
-- **🌡️ 深度硬件探测** — 利用私有 HID API，直探基于芯片的真实温度 (性能核心 / 效率核心 / GPU / 内存 / SSD 等)。
-- **💨 丝滑风扇控制** — 实时读取 RPM 及转速百分比，支持无极滑块手动调节。
-- **🤖 智能自动温控** — 提供「静音」、「平衡」、「性能」三种出厂预设曲线。
-- **📈 极客自定义曲线** — 内置专业的可视化风扇响应曲线编辑器。
-- **⏱️ 0 负担后台监控** — CPU 占用与内存统计毫秒级无痛获取，低能耗后台运行。
-- **📣 完善的安全机制** — 超温提醒、熔断保护，开机自启动守护你的爱机。
-- **🪄 隐形 UI 设计** — 纯粹的状态栏 Menu Bar 应用，不占用 Dock，即用即走。
+### 风扇控制
+
+- 系统自动、手动无级调速和实时 RPM 反馈。
+- 静音、平衡、性能三种预设温度曲线。
+- 可视化自定义曲线编辑器。
+- 自动控制开关、当前配置和自定义曲线会持久化，重新启动应用后自动恢复。
+- 应用启动后立即开始监控和自动控制，不需要先点击菜单栏图标。
+- 退出应用时恢复系统自动风扇模式。
+
+### 区域截图与编辑
+
+- 默认使用 `Control + Shift + A`（`⌃⇧A`）触发区域截图，快捷键可在设置中修改或恢复默认值。
+- 在鼠标所在显示器上自由框选任意大小区域，支持反向拖动、尺寸提示、放大镜、`Esc` 和右键取消。
+- 截图后始终打开编辑器，支持裁剪、矩形、箭头、画笔、文字和马赛克。
+- 支持标注选择、移动、八方向缩放、删除、撤销和重做。
+- 支持保存 PNG/JPEG、复制到剪贴板，以及在编辑器中使用 `Command + V` 打开剪贴板图片。
+- 多个截图可以分别打开编辑窗口；关闭未保存内容前会提示确认。
+
+> 当前版本按鼠标所在的单个显示器截图，不支持跨显示器框选、滚动截图、OCR、窗口自动识别或录屏。
 
 ## 系统要求
 
-- macOS 13.0 (Ventura) 或更高版本
-- Apple Silicon (M1/M2/M3/M4) 或 Intel Mac
-- Xcode 15+ / Swift 5.9+ (用于编译)
+- macOS 13.0 Ventura 或更高版本。
+- Apple Silicon 或 Intel Mac；实际温度传感器和可控风扇数量取决于具体机型与固件。
+- 区域截图需要开启“隐私与安全性 > 屏幕与系统音频录制”中的屏幕录制权限。
+- 风扇调速需要安装应用内置的特权 Helper，并输入管理员密码。
+- 从源码构建需要 Xcode 15 或更高版本、Swift 5.9 或更高版本。
 
-## 架构说明
+## 安装
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      MacFanControl.app                          │
-│                    (SwiftUI 菜单栏应用)                          │
-│                                                                  │
-│  MacFanControlCore ─ 数据模型、协议、错误类型                     │
-│  FanController ──── 核心控制逻辑 (依赖注入)                      │
-│  TemperatureReader ─ IOHIDEventSystemClient 温度读取             │
-│  SystemMonitor ──── CPU/内存监控                                 │
-│  SMCHelperClient ── Unix Socket 客户端                           │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              │ Unix Socket (/var/run/...)
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    MacFanControlHelper                           │
-│                  (特权辅助程序 - root 权限)                       │
-│                                                                  │
-│  • 写入 Ftst=1 解锁 Apple Silicon 风扇控制                       │
-│  • 设置风扇模式和目标转速                                         │
-│  • 读取 SMC 温度传感器                                           │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              │ IOKit / AppleSMC
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    System Management Controller                  │
-│                         (硬件 SMC 芯片)                          │
-└─────────────────────────────────────────────────────────────────┘
+### 下载 Release
+
+1. 从 [GitHub Releases](https://github.com/achen4020/MacFanControl/releases/latest) 下载 `MacFanControl_v1.1.0.zip`。
+2. 解压后将 `MacFanControl.app` 拖入 `/Applications`。
+3. 首次启动后，根据菜单栏提示安装风扇控制 Helper。
+4. 首次使用区域截图时，按提示授予屏幕录制权限并重新启动应用。
+
+当前发布包使用稳定的本地临时签名，但没有 Apple Developer ID 公证。如果 macOS 阻止首次启动，可在“系统设置 > 隐私与安全性”中选择仍要打开；仍无法运行时可执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MacFanControl.app
+open /Applications/MacFanControl.app
 ```
 
-### 模块依赖
+### 从源码构建应用包
 
+```bash
+git clone https://github.com/achen4020/MacFanControl.git
+cd MacFanControl
+./build-app.sh
 ```
-MacFanControlCoreTests ──▶ MacFanControlCore (纯数据模型/协议)
-MacFanControl (主应用) ───▶ MacFanControlCore + SMCKit
-MacFanControlHelper ──────▶ SMCKit (共享 SMC 访问层)
-```
 
-## 安装和运行
+构建完成后，应用位于项目根目录的 `MacFanControl.app`。脚本会生成 Release 二进制、编译并内置 `smc_helper`、创建 plist，并使用稳定的指定要求进行临时签名。
 
-### 编译
+### 开发模式
 
 ```bash
 swift build
+swift test
+swift run MacFanControl
 ```
 
-### 安装 Helper (需要管理员权限)
+直接运行 SwiftPM 可执行文件适合开发调试，但完整的 Helper 安装、应用图标、屏幕录制权限和稳定签名测试应使用 `./build-app.sh` 生成的应用包。
+
+## 权限说明
+
+### 屏幕录制权限
+
+区域截图需要读取显示器画面。授权后必须退出并重新打开 MacFanControl。开发构建使用稳定指定要求，避免每次重新编译都因 `cdhash` 变化而丢失屏幕录制权限。
+
+### 风扇控制 Helper
+
+温度和系统状态监控不要求 root 权限；修改风扇模式和目标转速需要特权 Helper。应用会将 Helper 安装到 `/Library/PrivilegedHelperTools/com.macfancontrol.smchelper`，并通过 Unix Socket `/var/run/com.macfancontrol.smchelper.sock` 通信。
+
+也可以手动安装或卸载：
 
 ```bash
 sudo ./install-helper.sh
-```
-
-Helper 会安装到 `/Library/PrivilegedHelperTools/` 并注册为 launchd 系统服务。
-
-### 运行
-
-```bash
-.build/debug/MacFanControl
-```
-
-### 卸载 Helper
-
-```bash
 sudo ./uninstall-helper.sh
 ```
 
+## 架构
+
+```text
+MacFanControl.app (SwiftUI / AppKit 菜单栏应用)
+├── MacFanControlCore   数据模型、曲线、配置、存储和网络计算
+├── ScreenshotKit       截图几何、历史、快捷键存储、渲染和编码
+├── FanController       监控、配置恢复和风扇控制协调
+├── TemperatureReader   HID 温度读取
+├── SystemMonitor       CPU、内存、启动磁盘和网络监控
+├── Screenshot          全局快捷键、选区遮罩和编辑器窗口
+└── SMCHelperClient ── Unix Socket ── MacFanControlHelper (root)
+                                           │
+                                           └── IOKit / AppleSMC
+```
+
+主应用依赖 `MacFanControlCore`、`ScreenshotKit` 和 `SMCKit`；特权 Helper 仅依赖共享的 `SMCKit`。截图模块与 `FanController` 解耦，只在用户触发时读取屏幕和创建编辑窗口，不影响持续运行的风扇监控。
+
 ## 项目结构
 
-```
+```text
 MacFanControl/
-├── Package.swift                          # SPM 包配置 (4 targets + 1 test)
-├── README.md
-├── Core/
-│   └── Models.swift                       # 数据模型、协议、错误类型 (public)
-├── Shared/
-│   └── SMC.swift                          # SMCManager (app 和 helper 共享)
+├── Package.swift
+├── Core/                         # 可测试的监控、风扇和配置模型
+├── ScreenshotKit/                # 截图核心模型、几何、历史与渲染
+├── Shared/                       # 应用和 Helper 共享的 SMC 访问层
 ├── Sources/
-│   ├── MacFanControlApp.swift             # @main 入口 + 窗口控制器
-│   ├── FanController.swift                # 核心控制逻辑 (依赖注入)
-│   ├── MenuBarViews.swift                 # 菜单栏 UI 组件
-│   ├── FanCurveEditor.swift               # 风扇曲线编辑器
-│   ├── SettingsViews.swift                # 设置视图
-│   ├── TemperatureReader.swift            # HID 温度传感器读取
-│   ├── SystemMonitor.swift                # CPU/内存监控
-│   └── SMCHelperClient.swift              # Unix Socket 通信客户端
-├── Helper/
-│   ├── main.swift                         # Helper daemon 入口
-│   └── HelperProtocol.swift               # 通信协议定义
+│   ├── MacFanControlApp.swift    # 应用入口和窗口控制器
+│   ├── FanController.swift       # 监控与风扇控制协调
+│   ├── MenuBarViews.swift        # 菜单栏面板
+│   ├── FanCurveEditor.swift      # 风扇曲线编辑器
+│   ├── SettingsViews.swift       # 通用、配置、截图和关于设置
+│   ├── SystemMonitor.swift       # CPU、内存、磁盘和网络监控
+│   └── Screenshot/               # 快捷键、选区和截图编辑器
+├── Helper/                       # Swift Helper 目标
+├── smc_helper.c                  # 发布包内置的 Helper 实现
 └── Tests/
-    └── MacFanControlCoreTests/
-        └── ModelsTests.swift              # 24 个单元测试
+    ├── MacFanControlCoreTests/
+    ├── ScreenshotKitTests/
+    ├── BuildAppSigningTests.sh
+    └── ReleaseMetadataTests.sh
 ```
 
-## 测试
+## 测试与发布校验
 
 ```bash
 swift test
+swift build -c release
+bash Tests/BuildAppSigningTests.sh MacFanControl.app
+bash Tests/ReleaseMetadataTests.sh
 ```
 
-覆盖范围：
-- 风扇曲线插值算法（边界值、中间值、空曲线）
-- 温度警告级别阈值判断
-- 传感器名称中英文映射
-- 风扇速度百分比计算
-- 错误类型描述文本
-- 预设配置文件完整性
-
-## 技术说明
-
-### Apple Silicon 温度读取
-
-通过 `IOHIDEventSystemClient` 私有 API（dlsym 动态加载）读取 HID 温度传感器：
-- `PMU tdie*` — CPU 性能核心温度
-- `PMU2 tdie*` — CPU 效率核心温度
-- `PMU tdev*` — 芯片区域温度
-- `NAND CH0 temp` — SSD 温度
-
-### Apple Silicon 风扇控制
-
-需要特权 Helper daemon 通过 SMC 控制：
-
-1. 写入 `Ftst = 1` 进入诊断模式
-2. 设置 `F0Md = 1` 切换手动模式
-3. 写入 `F0Tg` 设置目标转速
-
-### SMC 键说明
-
-| 键名 | 说明 | 格式 |
-|------|------|------|
-| FNum | 风扇数量 | UInt8 |
-| F0Ac | 风扇 0 实际转速 | fpe2 (14.2 定点) |
-| F0Mn | 风扇 0 最小转速 | fpe2 |
-| F0Mx | 风扇 0 最大转速 | fpe2 |
-| F0Tg | 风扇 0 目标转速 | fpe2 |
-| F0Md | 风扇 0 模式 | UInt8 (0=自动, 1=手动) |
-| FS!  | 强制模式位掩码 | UInt16 |
-| Ftst | 诊断/测试模式 | UInt8 (Apple Silicon 必需) |
-
-### 设计模式
-
-- **协议抽象** — `TemperatureProvider` / `FanControlProvider` 解耦硬件访问
-- **依赖注入** — FanController 通过 init 参数接收依赖，支持测试替换
-- **类型化错误** — `AppError` 枚举替代字符串错误，提供结构化错误处理
-- **模块化** — Core（纯逻辑）/ SMCKit（硬件）/ App（UI）/ Helper（特权）
-
-### 性能优化
-
-- **后台线程 I/O** — HID 温度读取和 Socket 风扇通信均在 `DispatchQueue.global` 执行，不阻塞主线程
-- **@Published 变更检测** — 所有 @Published 属性仅在值实际变化时赋值，避免不必要的 SwiftUI 重绘
-  - 温度值：变化 ≥ 0.5°C 才更新
-  - CPU/内存使用率：变化 ≥ 0.1% 才更新
-  - 数组（temperatures/fans）：逐元素比较，无变化不触发
-- **并发保护** — `isUpdatingFanInfo` / `isUpdatingTemperatures` 防止定时器回调堆积
-- **智能发送** — 自动控制模式下，风扇转速变化 ≥ 1% 才发送 Socket 命令
-- **静态缓存** — 传感器名称映射表、总内存大小等不变数据仅初始化一次
-- **Socket 超时** — 2 秒读写超时防止 Helper 无响应时阻塞
+当前测试覆盖风扇曲线与配置持久化、传感器名称、CPU/内存/磁盘/网络计算、截图坐标与 Retina 映射、快捷键存储、会话去重、编辑历史、裁剪、马赛克、PNG 编码、剪贴板限制和编辑器窗口尺寸。
 
 ## 故障排除
+
+### 已开启屏幕录制权限但仍无法截图
+
+确认运行的是 `/Applications/MacFanControl.app`，退出应用后重新打开。如果系统中保存了旧开发构建的权限记录，可执行以下命令，然后重新授权一次：
+
+```bash
+tccutil reset ScreenCapture com.macfancontrol.app
+open /Applications/MacFanControl.app
+```
 
 ### Helper 无法启动
 
 ```bash
 sudo log show --predicate 'subsystem == "com.macfancontrol.helper"' --last 5m
+sudo launchctl list | grep macfancontrol
+ls -l /var/run/com.macfancontrol.smchelper.sock
 ```
 
 ### 无法控制风扇
 
-1. 确认 Helper 已安装：`ls /var/run/com.macfancontrol.smchelper.sock`
-2. 检查 Helper 状态：`sudo launchctl list | grep macfancontrol`
-3. M3/M4 可能有固件限制（仅在系统激活风扇后可接管）
+- 确认 Helper 已安装并且 Socket 存在。
+- 部分无风扇机型只能监控，无法调速。
+- 部分 Apple Silicon 固件可能只允许在系统已经激活风扇后接管控制。
 
 ### 温度不显示
 
-Apple Silicon 上温度通过 HID 传感器读取，无需 root 权限。如果无数据，会回退到 CPU 负载估算。
+应用优先读取能够明确识别的 HID 温度传感器，再回退到 SMC。不同机型暴露的传感器并不相同，无法明确对应的原始传感器不会显示。
 
 ## 许可证
 
@@ -217,5 +192,5 @@ MIT License
 
 ## 致谢
 
-- [SMCKit](https://github.com/beltex/SMCKit) — SMC 访问参考
-- [Stats](https://github.com/exelban/stats) — 开源系统监控工具
+- [SMCKit](https://github.com/beltex/SMCKit) - SMC 访问参考
+- [Stats](https://github.com/exelban/stats) - 开源 macOS 系统监控工具

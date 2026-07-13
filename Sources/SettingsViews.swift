@@ -247,7 +247,7 @@ struct AboutView: View {
                 .font(.title2)
                 .fontWeight(.bold)
 
-            Text("版本 1.0.0")
+            Text("版本 1.1.0")
                 .foregroundColor(.secondary)
 
             Divider()
