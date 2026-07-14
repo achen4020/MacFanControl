@@ -217,6 +217,10 @@ sudo launchctl print system/com.macfancontrol.helper.v2
 
 应用优先读取能够明确识别的 HID 温度传感器，再回退到 SMC。不同机型暴露的传感器并不相同，无法明确对应的原始传感器不会显示。
 
+### APP截图
+<img width="315" height="551" alt="bfdc89d8355ee338e4698dff849ee75a" src="https://github.com/user-attachments/assets/89461796-2edb-4b80-b6e9-cedb39c8490c" />
+
+
 ## 许可证
 
 MIT License
