@@ -170,11 +170,13 @@ final class HelperServiceTests: XCTestCase {
     func testFanSnapshotReadErrorIsThrown() {
         let hardware = FakeFanHardware()
         hardware.readError = TestError.readFailed
-        let service = HelperService(hardware: hardware)
+        var diagnostics: [String] = []
+        let service = HelperService(hardware: hardware) { diagnostics.append($0) }
 
         XCTAssertThrowsError(try service.fanSnapshots()) { error in
             XCTAssertEqual(error as? HelperServiceError, .hardwareReadFailed)
         }
+        XCTAssertEqual(diagnostics, ["fanSnapshots failed: readFailed"])
     }
 
     func testFanSnapshotMissingRequiredReadingIsThrown() {
@@ -260,6 +262,25 @@ final class HelperServiceTests: XCTestCase {
         })
     }
 
+    func testOptionalSMCKeyWriteIgnoresUnsupportedKey() throws {
+        try SMCOptionalKeyWrite.perform {
+            throw SMCError.notSupported
+        }
+        try SMCOptionalKeyWrite.perform {
+            throw SMCError.smcError(0x84)
+        }
+    }
+
+    func testOptionalSMCKeyWritePropagatesRealFailure() {
+        XCTAssertThrowsError(try SMCOptionalKeyWrite.perform {
+            throw SMCError.callFailed(-1)
+        }) { error in
+            guard case SMCError.callFailed(-1) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
     func testTemperatureDiscoverySkipsUnavailableKeyAndKeepsIdentity() throws {
         let manager = FakeSMCManager()
         manager.temperatureDescriptors = [
@@ -273,6 +294,22 @@ final class HelperServiceTests: XCTestCase {
 
         XCTAssertEqual(try SMCFanHardware(manager: manager).temperatures(), [
             HelperTemperatureSnapshot(key: "TC0P", name: "CPU Proximity", value: 52.5),
+        ])
+    }
+
+    func testTemperatureDiscoverySkipsUnsupportedKey() throws {
+        let manager = FakeSMCManager()
+        manager.temperatureDescriptors = [
+            SMCTemperatureSensorDescriptor(key: "MISSING", name: "Missing"),
+            SMCTemperatureSensorDescriptor(key: "Tp01", name: "CPU"),
+        ]
+        manager.temperatureRead = { key in
+            if key == "MISSING" { throw SMCError.notSupported }
+            return 63.5
+        }
+
+        XCTAssertEqual(try SMCFanHardware(manager: manager).temperatures(), [
+            HelperTemperatureSnapshot(key: "Tp01", name: "CPU", value: 63.5),
         ])
     }
 

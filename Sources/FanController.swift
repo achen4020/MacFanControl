@@ -65,6 +65,13 @@ class FanController: ObservableObject {
     private let updateInterval: TimeInterval = 2.0
     private var lastHighTempNotificationTime: Date?
 
+    private var preferredFanControlTransport: FanControlTransport {
+        FanControlTransport.resolve(
+            isAppleSilicon: isAppleSilicon,
+            helperAvailable: fanControl.isAvailable
+        )
+    }
+
     private init(
         smc: SMCManager = .shared,
         temperatureProvider: TemperatureProvider = M4TempReader(),
@@ -635,7 +642,7 @@ class FanController: ObservableObject {
         let clampedSpeed = max(fan.minSpeed, min(fan.maxSpeed, speed))
 
         // 使用 FanControlProvider
-        if fanControl.isAvailable {
+        if preferredFanControlTransport == .helper {
             if await fanControl.setFanSpeed(index: fan.id, rpm: clampedSpeed) {
                 fans[fanIndex].targetSpeed = clampedSpeed
                 fans[fanIndex].isManualMode = true
@@ -675,7 +682,7 @@ class FanController: ObservableObject {
         guard fanIndex < fans.count else { return }
 
         // 使用 FanControlProvider
-        if fanControl.isAvailable {
+        if preferredFanControlTransport == .helper {
             if await fanControl.resetFanToAuto(index: fans[fanIndex].id) {
                 fans[fanIndex].targetSpeed = nil
                 fans[fanIndex].isManualMode = false
@@ -698,7 +705,7 @@ class FanController: ObservableObject {
     }
 
     func resetAllFansToAuto() async {
-        if fanControl.isAvailable {
+        if preferredFanControlTransport == .helper {
             if await fanControl.resetAllFansToAuto() {
                 for index in fans.indices {
                     fans[index].targetSpeed = nil

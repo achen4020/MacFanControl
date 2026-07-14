@@ -24,9 +24,9 @@ public protocol LegacyHelperRemoving: AnyObject {
 }
 
 public final class LegacyHelperRemover: LegacyHelperRemoving {
-    private static let legacyPlists = [
-        "/Library/LaunchDaemons/com.macfancontrol.helper.plist",
-        "/Library/LaunchDaemons/com.macfancontrol.smchelper.plist"
+    private static let legacyServiceLabels = [
+        "com.macfancontrol.helper",
+        "com.macfancontrol.smchelper"
     ]
     private static let legacyPaths = [
         "/Library/LaunchDaemons/com.macfancontrol.helper.plist",
@@ -49,12 +49,12 @@ public final class LegacyHelperRemover: LegacyHelperRemoving {
     }
 
     public func remove() -> HelperOperationResult {
-        for plist in Self.legacyPlists {
+        for label in Self.legacyServiceLabels {
             let commandResult: LegacyCommandResult
             do {
                 commandResult = try executor.execute(
                     executable: "/bin/launchctl",
-                    arguments: ["bootout", "system", plist]
+                    arguments: ["bootout", "system/\(label)"]
                 )
             } catch {
                 return HelperOperationResult(success: false, error: "legacy_bootout_failed")

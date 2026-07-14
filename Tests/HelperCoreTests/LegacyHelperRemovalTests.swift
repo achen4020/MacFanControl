@@ -15,16 +15,14 @@ final class LegacyHelperRemovalTests: XCTestCase {
                 executable: "/bin/launchctl",
                 arguments: [
                     "bootout",
-                    "system",
-                    "/Library/LaunchDaemons/com.macfancontrol.helper.plist"
+                    "system/com.macfancontrol.helper"
                 ]
             ),
             .execute(
                 executable: "/bin/launchctl",
                 arguments: [
                     "bootout",
-                    "system",
-                    "/Library/LaunchDaemons/com.macfancontrol.smchelper.plist"
+                    "system/com.macfancontrol.smchelper"
                 ]
             ),
             .remove("/Library/LaunchDaemons/com.macfancontrol.helper.plist"),

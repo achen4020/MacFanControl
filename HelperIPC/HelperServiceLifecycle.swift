@@ -30,17 +30,13 @@ public struct HelperServicePresentation: Equatable, Sendable {
             message = "服务已启用，但当前无法连接"
             action = .retryConnection
             isSuccess = false
-        case (.notRegistered, _):
+        case (.notRegistered, _), (.notFound, _):
             message = registrationState.message
             action = .register
             isSuccess = false
         case (.requiresApproval, _):
             message = registrationState.message
             action = .openApprovalSettings
-            isSuccess = false
-        case (.notFound, _):
-            message = registrationState.message
-            action = nil
             isSuccess = false
         }
     }

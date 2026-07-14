@@ -1,5 +1,11 @@
 import Foundation
 import HelperIPC
+import os
+
+private let helperServiceLogger = Logger(
+    subsystem: "com.macfancontrol.helper.v2",
+    category: "hardware"
+)
 
 public protocol FanHardwareControlling: AnyObject {
     func fanCount() throws -> Int
@@ -33,10 +39,18 @@ public struct HelperOperationResult: Equatable, Sendable {
 
 public final class HelperService {
     private let hardware: FanHardwareControlling
+    private let diagnosticLog: (String) -> Void
     private let lock = NSLock()
 
-    public init(hardware: FanHardwareControlling) {
+    public convenience init(hardware: FanHardwareControlling) {
+        self.init(hardware: hardware) {
+            helperServiceLogger.error("\($0, privacy: .public)")
+        }
+    }
+
+    public init(hardware: FanHardwareControlling, diagnosticLog: @escaping (String) -> Void) {
         self.hardware = hardware
+        self.diagnosticLog = diagnosticLog
     }
 
     public func setFanSpeed(index: Int, rpm: Int) -> HelperOperationResult {
@@ -144,6 +158,7 @@ public final class HelperService {
                     )
                 }
             } catch {
+                diagnosticLog("fanSnapshots failed: \(error)")
                 throw HelperServiceError.hardwareReadFailed
             }
         }

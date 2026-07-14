@@ -31,6 +31,8 @@ public struct SMCKeyDataKeyInfo {
     public var dataSize: UInt32 = 0
     public var dataType: UInt32 = 0
     public var dataAttributes: UInt8 = 0
+    // Preserve the C ABI tail padding so SMCKeyData stays exactly 80 bytes.
+    public var reserved: (UInt8, UInt8, UInt8) = (0, 0, 0)
     public init() {}
 }
 
@@ -60,6 +62,12 @@ public struct SMCValue {
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
     public init() {}
+
+    public init(keyInfo: SMCKeyDataKeyInfo, data: SMCKeyData) {
+        dataSize = keyInfo.dataSize
+        dataType = keyInfo.dataType
+        bytes = data.bytes
+    }
 }
 
 public struct SMCTemperatureSensor: Equatable, Sendable {
@@ -102,6 +110,8 @@ public enum SMCTemperatureDiscovery {
             } catch SMCError.smcError {
                 // A key-level SMC error means this optional sensor is unavailable.
                 continue
+            } catch SMCError.notSupported {
+                continue
             }
         }
         return sensors
@@ -134,6 +144,18 @@ public struct SMCTestModePolicy: Sendable {
     private func performIfRequired(_ operation: () throws -> Void) rethrows {
         if requiresTestMode {
             try operation()
+        }
+    }
+}
+
+public enum SMCOptionalKeyWrite {
+    public static func perform(_ operation: () throws -> Void) throws {
+        do {
+            try operation()
+        } catch SMCError.notSupported {
+            return
+        } catch SMCError.smcError(0x84) {
+            return
         }
     }
 }
@@ -244,17 +266,16 @@ public class SMCManager {
 
         try callSMC(&inputStruct, &outputStruct)
 
-        inputStruct.keyInfo.dataSize = outputStruct.keyInfo.dataSize
+        let keyInfo = outputStruct.keyInfo
+        guard keyInfo.dataSize > 0 else {
+            throw SMCError.notSupported
+        }
+        inputStruct.keyInfo.dataSize = keyInfo.dataSize
         inputStruct.data8 = SMCSelector.kSMCReadKey.rawValue
 
         try callSMC(&inputStruct, &outputStruct)
 
-        var value = SMCValue()
-        value.dataSize = outputStruct.keyInfo.dataSize
-        value.dataType = outputStruct.keyInfo.dataType
-        value.bytes = outputStruct.bytes
-
-        return value
+        return SMCValue(keyInfo: keyInfo, data: outputStruct)
     }
 
     /// Write SMC key with value
@@ -269,7 +290,11 @@ public class SMCManager {
 
         try callSMC(&inputStruct, &outputStruct)
 
-        inputStruct.keyInfo.dataSize = outputStruct.keyInfo.dataSize
+        let keyInfo = outputStruct.keyInfo
+        guard keyInfo.dataSize > 0 else {
+            throw SMCError.notSupported
+        }
+        inputStruct.keyInfo.dataSize = keyInfo.dataSize
         inputStruct.data8 = SMCSelector.kSMCWriteKey.rawValue
         inputStruct.bytes = value.bytes
 
@@ -407,13 +432,10 @@ public class SMCManager {
 
         // Set target speed
         let key = SMCKeys.fanTargetSpeed(index)
-        var value = SMCValue()
-        value.dataSize = 2
-
-        // Convert to fpe2 format (fixed point, 14 bits integer, 2 bits fraction)
-        let fpe2 = UInt16(speed) << 2
-        value.bytes.0 = UInt8(fpe2 >> 8)
-        value.bytes.1 = UInt8(fpe2 & 0xFF)
+        let currentValue = try readKey(key)
+        guard let value = SMCValue.fanSpeed(speed, dataType: currentValue.dataType) else {
+            throw SMCError.notSupported
+        }
 
         try writeKey(key, value: value)
     }
@@ -428,10 +450,9 @@ public class SMCManager {
 
         let policy = SMCTestModePolicy.current
         try policy.unlock {
-            try writeKey(SMCKeys.fanTestMode, value: value)
-        }
-        if policy.requiresTestMode {
-            print("✅ Apple Silicon fan control unlocked (Ftst=1)")
+            try SMCOptionalKeyWrite.perform {
+                try writeKey(SMCKeys.fanTestMode, value: value)
+            }
         }
     }
 
@@ -439,7 +460,6 @@ public class SMCManager {
     public func lockAppleSiliconFanControl() {
         do {
             try lockAppleSiliconFanControlThrowing()
-            print("✅ Apple Silicon fan control locked (Ftst=0)")
         } catch {
             // Preserve the legacy best-effort public API.
         }
@@ -450,7 +470,9 @@ public class SMCManager {
         value.dataSize = 1
         value.bytes.0 = 0
         try SMCTestModePolicy.current.lock {
-            try writeKey(SMCKeys.fanTestMode, value: value)
+            try SMCOptionalKeyWrite.perform {
+                try writeKey(SMCKeys.fanTestMode, value: value)
+            }
         }
     }
 
@@ -562,8 +584,37 @@ extension String {
 }
 
 extension SMCValue {
+    public static func fanSpeed(_ rpm: Int, dataType: UInt32) -> SMCValue? {
+        guard rpm >= 0 else { return nil }
+        var value = SMCValue()
+        value.dataType = dataType
+
+        switch dataType {
+        case "flt ".smcKey:
+            let bits = Float(rpm).bitPattern
+            value.dataSize = 4
+            value.bytes.0 = UInt8(truncatingIfNeeded: bits)
+            value.bytes.1 = UInt8(truncatingIfNeeded: bits >> 8)
+            value.bytes.2 = UInt8(truncatingIfNeeded: bits >> 16)
+            value.bytes.3 = UInt8(truncatingIfNeeded: bits >> 24)
+        case "fpe2".smcKey:
+            guard rpm <= Int(UInt16.max >> 2) else { return nil }
+            let raw = UInt16(rpm) << 2
+            value.dataSize = 2
+            value.bytes.0 = UInt8(raw >> 8)
+            value.bytes.1 = UInt8(raw & 0xff)
+        default:
+            return nil
+        }
+        return value
+    }
+
     /// Convert SMC value to temperature (Celsius)
     public func toTemperature() -> Double? {
+        if dataType == "flt ".smcKey {
+            guard let value = floatValue else { return nil }
+            return Double(value)
+        }
         guard dataSize >= 2 else { return nil }
 
         // sp78 format: signed 7.8 fixed point
@@ -573,10 +624,24 @@ extension SMCValue {
 
     /// Convert SMC value to fan speed (RPM)
     public func toFanSpeed() -> Int? {
+        if dataType == "flt ".smcKey {
+            guard let value = floatValue, value >= 0 else { return nil }
+            return Int(value.rounded())
+        }
         guard dataSize >= 2 else { return nil }
 
         // fpe2 format: unsigned 14.2 fixed point
         let value = UInt16(bytes.0) << 8 | UInt16(bytes.1)
         return Int(value >> 2)
+    }
+
+    private var floatValue: Float? {
+        guard dataSize >= 4 else { return nil }
+        let bits = UInt32(bytes.0)
+            | (UInt32(bytes.1) << 8)
+            | (UInt32(bytes.2) << 16)
+            | (UInt32(bytes.3) << 24)
+        let value = Float(bitPattern: bits)
+        return value.isFinite ? value : nil
     }
 }
