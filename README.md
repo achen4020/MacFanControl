@@ -7,7 +7,7 @@
 
   ![macOS](https://img.shields.io/badge/macOS-13.0+-000000?style=flat-square&logo=apple)
   ![Swift](https://img.shields.io/badge/Swift-5.9+-FA7343?style=flat-square&logo=swift)
-  ![Version](https://img.shields.io/badge/version-1.1.1-blue?style=flat-square)
+  ![Version](https://img.shields.io/badge/version-1.1.2-blue?style=flat-square)
   ![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)
 </div>
 
@@ -55,12 +55,12 @@ MacFanControl 是一款不占用 Dock 的 SwiftUI 菜单栏应用。它把温度
 
 ### 下载 Release
 
-1. 从 [GitHub Releases](https://github.com/achen4020/MacFanControl/releases/latest) 下载 `MacFanControl_v1.1.1.zip`。
+1. 从 [GitHub Releases](https://github.com/achen4020/MacFanControl/releases/latest) 下载 `MacFanControl_v1.1.2.zip`。
 2. 解压后将 `MacFanControl.app` 拖入 `/Applications`。
 3. 首次启动后，根据菜单栏提示启用风扇控制 Helper，并按需在系统设置中批准。
 4. 首次使用区域截图时，按提示授予屏幕录制权限并重新启动应用。
 
-`v1.1.1` 下载包使用 Developer ID 正式签名、通过 Apple 公证并装订公证票据。下载后可使用同页提供的 SHA-256 文件校验完整性。
+`v1.1.2` 下载包使用 Developer ID 正式签名、通过 Apple 公证并装订公证票据。下载后可使用同页提供的 SHA-256 文件校验完整性。
 
 ### 从源码构建应用包
 
@@ -70,7 +70,7 @@ cd MacFanControl
 ./build-app.sh
 ```
 
-构建完成后，应用位于项目根目录的 `MacFanControl.app`。`build-app.sh` 仅用于本地开发与临时签名验证，不是可对外分发的 Developer ID 构建流程；正式分发请使用下一节的脚本。
+构建完成后，应用位于项目根目录的 `MacFanControl.app`。`build-app.sh` 会自动选择钥匙串中的 `Developer ID Application` 证书，并生成包含安全 Helper 的签名应用包；如果证书不存在，脚本会停止并说明原因，因为临时签名包无法注册当前的风扇控制服务。
 
 ### Developer ID 正式签名构建
 
@@ -104,11 +104,11 @@ App 专用密码由上述命令交互式读取，只保存在登录钥匙串中�
 ```bash
 ./scripts/notarize-release.sh \
   ./MacFanControl.app \
-  1.1.1 \
+  1.1.2 \
   MacFanControl-Notary
 ```
 
-只有 Apple 返回 `Accepted`，且 `stapler` 与 `spctl` 全部验证通过时，脚本才会生成 `MacFanControl_v1.1.1.zip` 和 `MacFanControl_v1.1.1.zip.sha256`。失败不会覆盖同名的已有发布包。
+只有 Apple 返回 `Accepted`，且 `stapler` 与 `spctl` 全部验证通过时，脚本才会生成 `MacFanControl_v1.1.2.zip` 和 `MacFanControl_v1.1.2.zip.sha256`。失败不会覆盖同名的已有发布包。
 
 ### 开发模式
 
@@ -118,13 +118,13 @@ swift test
 swift run MacFanControl
 ```
 
-直接运行 SwiftPM 可执行文件适合开发调试，但完整的 Helper 安装、应用图标、屏幕录制权限和稳定签名测试应使用 `./build-app.sh` 生成的应用包。
+直接运行 SwiftPM 可执行文件适合不需要风扇控制的界面开发。需要完整的 Helper 安装、应用图标、屏幕录制权限和稳定签名时，应使用 `./build-app.sh` 生成的 Developer ID 签名应用包。
 
 ## 权限说明
 
 ### 屏幕录制权限
 
-区域截图需要读取显示器画面。授权后必须退出并重新打开 MacFanControl。开发构建使用稳定指定要求，避免每次重新编译都因 `cdhash` 变化而丢失屏幕录制权限。
+区域截图需要读取显示器画面。授权后必须退出并重新打开 MacFanControl。`build-app.sh` 使用稳定的 Developer ID 签名要求，避免每次重新编译都因 `cdhash` 变化而丢失屏幕录制权限。
 
 ### 风扇控制 Helper
 

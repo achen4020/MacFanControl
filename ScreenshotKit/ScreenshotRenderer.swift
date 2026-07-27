@@ -54,10 +54,10 @@ public final class ScreenshotRenderer {
             throw ScreenshotOutputError.renderingFailed
         }
 
-        context.translateBy(x: 0, y: CGFloat(base.height))
-        context.scaleBy(x: 1, y: -1)
         context.interpolationQuality = .high
         context.draw(base, in: CGRect(x: 0, y: 0, width: base.width, height: base.height))
+        context.translateBy(x: 0, y: CGFloat(base.height))
+        context.scaleBy(x: 1, y: -1)
         context.translateBy(x: -crop.minX, y: -crop.minY)
         context.clip(to: crop)
 
@@ -234,7 +234,12 @@ public final class ScreenshotRenderer {
         guard let pixelated = smallContext.makeImage() else { return }
         context.saveGState()
         context.interpolationQuality = .none
-        context.draw(pixelated, in: area)
+        context.translateBy(x: area.minX, y: area.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(
+            pixelated,
+            in: CGRect(origin: .zero, size: area.size)
+        )
         context.restoreGState()
     }
 }
